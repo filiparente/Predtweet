@@ -19,7 +19,7 @@ pr.enable()
 def load_data(path):
     # Load the bitcoin data
     nRowsRead = None # specify 'None' if want to read whole file
-    #col_names = ["id", "user", "fullname", "url", "timestamp", "replies", "likes", "retweets", "text"]
+    col_names = ["id", "user", "fullname", "url", "timestamp", "replies", "likes", "retweets", "text"]
 
     df_chunk = pd.read_csv(path, delimiter=';', nrows = nRowsRead,  engine='python')
     df_chunk.dataframeName = 'tweets.csv'
@@ -111,13 +111,13 @@ embbedings['tweet'] = []
 #Each chunk is in df format
 if not df.empty:
     with open("language_detection.csv", mode='w', encoding="utf-8") as csv_file:
-        field_names = ['Sentence', 'English']
+        field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
         writer = csv.DictWriter(csv_file, fieldnames=field_names)
         writer.writeheader()
 
         nRow, nCol = df.shape
         print(f'There are {nRow} rows and {nCol} columns')
-        nRow = 10000
+        nRow = 1000
         # ENCODING PHASE
         print("\nENCODING PHASE\n")
 
@@ -136,7 +136,7 @@ if not df.empty:
                     language = 'none'
                 
                 if language=='en':
-                    writer.writerow({'Sentence': sentence, 'English': 'YES'})
+                    writer.writerow({'Sentence': sentence, 'Replies': df['replies'][tweet], 'Likes': df['likes'][tweet], 'Retweets':df['retweets'][tweet],'English': 'YES'})
                     # `encode` will:
                     #   (1) Tokenize the sentence (tweet).
                     #   (2) Prepend the `[CLS]` token to the start.
@@ -153,7 +153,7 @@ if not df.empty:
                     #    'embbeding': sentence_embedding
                     #})
                 else:
-                    writer.writerow({'Sentence': sentence, 'English': 'NO'})
+                    writer.writerow({'Sentence': sentence, 'Replies': df['replies'][tweet], 'Likes': df['likes'][tweet], 'Retweets':df['retweets'][tweet], 'English': 'NO'})
                     
         bar.finish()
 
