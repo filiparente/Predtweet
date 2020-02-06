@@ -10,7 +10,7 @@ statistical learning with in-the-loop human evaluation :)
 __author__="brendan o'connor (anyall.org)"
 
 import re,sys
-import emoticons
+from . import emoticons
 mycompile = lambda pat:  re.compile(pat,  re.UNICODE)
 def regex_or(*items):
   r = '|'.join(items)
@@ -32,7 +32,7 @@ Entity = '&(amp|lt|gt|quot);'
 #Url = r'''https?://\S+'''
 
 # more complex version:
-UrlStart1 = regex_or(r'https?://', r'www\.', r'https://', r'http://')
+UrlStart1 = regex_or('https?://', r'www\.')
 CommonTLDs = regex_or('com','co\\.uk','org','net','info','ca')
 UrlStart2 = r'[a-z0-9\.-]+?' + r'\.' + CommonTLDs + pos_lookahead(r'[/ \W\b]')
 UrlBody = r'[^ \t\r\n<>]*?'  # * not + for case of:  "go to bla.com." -- don't want period
@@ -69,17 +69,17 @@ Decorations = r' [  ♫   ]+ '.replace(' ','')
 EmbeddedApostrophe = r"\S+'\S+"
 
 ProtectThese = [
-    emoticons.Emoticon,
+    #emoticons.Emoticon,
     Url,
     Entity,
     Timelike,
-    NumNum,
-    NumberWithCommas,
-    Punct,
+    #NumNum,
+    #NumberWithCommas,
+    #Punct,
     ArbitraryAbbrev,
     Separators,
     Decorations,
-    EmbeddedApostrophe,
+    #EmbeddedApostrophe,
 ]
 Protect_RE = mycompile(regex_or(*ProtectThese))
 
@@ -123,9 +123,92 @@ def unicodify(s, encoding='utf8', *args):
   if isinstance(s,str): return s.decode(encoding, *args)
   return str(s)
 
+def compound_word_split(compound_word):
+    """
+    Split a given compound word(string) and return list of words in given compound_word
+    Ex: compound_word='pyTWEETCleaner' --> ['py', 'TWEET', 'Cleaner']
+    """
+    matches = re.finditer('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)', compound_word)
+    return [m.group(0) for m in matches]
+
+def remove_non_ascii_chars(text):
+    """
+    return text after removing non-ascii characters i.e. characters with ascii value >= 128
+    """
+    return ''.join([w if ord(w) < 128 else ' ' for w in text])
+
+def general_identifications(text):
+    """
+    replace @user_name by general @user for all user_names, because it adds no information
+    """
+    cleaned_text = ''
+    for w in text.split(' '):
+        if re.match(r'@[_A-Za-z0-9]+',w) and w[1:]!='bitcoin':
+            cleaned_text = cleaned_text+ '@user '
+        else:
+            cleaned_text = cleaned_text + w + ' '
+    return cleaned_text
+
+    #return ' '.join([w for w in text.split(' ')  if '@' in w])
+
+def replace_hyperlinks(text):
+    """
+    return text after removing hyperlinks
+    """
+    # Simply remove
+    #return ' '.join([w for w in text.split(' ')  if not 'http' in w])
+
+    # Replace by 'link'
+    cleaned_text = ''
+    for w in text.split(' '):
+        if 'http' in w or 'www.' in w:
+            cleaned_text = cleaned_text+ 'URL '
+        else:
+            cleaned_text = cleaned_text + w + ' '
+    return cleaned_text
+ 
+  
+def get_cleaned_text(text, remove_retweets=True):
+    """
+    return cleaned text(string) for provided tweet text(string)
+    """
+    #cleaned_text = text.replace('\"','').replace('\'','').replace('-',' ')
+
+    cleaned_text = text    
+    cleaned_text =  remove_non_ascii_chars(cleaned_text)
+    
+    # retweet
+    if re.match(r'RT @[_A-Za-z0-9]+:',text): # retweet
+        if remove_retweets: return ''
+        retweet_info = cleaned_text[:cleaned_text.index(':')+2] # 'RT @name: ' will be again added in the text after cleaning
+        cleaned_text = cleaned_text[cleaned_text.index(':')+2:]
+    else:
+        retweet_info = ''
+        
+    cleaned_text = replace_hyperlinks(cleaned_text) 
+
+    cleaned_text = general_identifications(cleaned_text)
+
+    while(1):
+      (has_emoticon, cleaned_text) = emoticons.analyze_tweet(cleaned_text.strip())
+      if not has_emoticon:
+        break
+    
+    cleaned_text = cleaned_text.replace('# ','HASHTAG ').replace('@ ','AT ') # to avoid being removed while removing punctuations
+    
+    #tokens = [w.translate(self.punc_table) for w in word_tokenize(cleaned_text)] # remove punctuations and tokenize
+    #tokens = [w for w in tokens if not w.lower() in self.stop_words and len(w)>1] # remove stopwords and single length words
+    #cleaned_text = ' '.join(tokens)
+    
+    #cleaned_text = cleaned_text.replace('HASHTAGSYMBOL','#').replace('ATSYMBOL','@')
+    cleaned_text = retweet_info + cleaned_text
+    
+    return cleaned_text
+
 def tokenize(tweet):
   text = unicodify(tweet)
   text = squeeze_whitespace(text)
+  text = get_cleaned_text(text)
   t = Tokenization()
   t += simple_tokenize(text)
   t.text = text
@@ -159,7 +242,7 @@ def simple_tokenize(text):
   res = []
   for i in range(len(bads)):
     res += goods[i]
-    res.append(bads[i])
+    #res.append(bads[i])
   res += goods[-1]
 
   res = post_process(res)
