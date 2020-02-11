@@ -26,7 +26,7 @@ for comb in all_combs:
     bar.update(n_comb+1)
     n_comb+=1
     
-    run.main(window_size=dw, disc_unit=dt, embeddings_path = args.embeddings_path, out_path=args.out_path)
+    run.main(window_size=dw, disc_unit=dt, embbedings_path = args.embeddings_path, out_path=args.out_path)
 
     # using Popen may suit better here depending on how you want to deal
     # with the output of the child_script.
