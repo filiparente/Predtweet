@@ -11,6 +11,7 @@
             "subProcess": true,
             "program": "${file}",
             "console": "integratedTerminal",
+            "justMyCode": false,
             
         }
         {

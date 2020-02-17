@@ -12,7 +12,7 @@ parser.add_argument('--out_path', default='results/', help="OS path to the folde
 args = parser.parse_args()
 print(args) 
 
-dt = [3,4,6,12,24,48]  #discretization unit in hours
+dt = [1,3,4,6,12,24,48]  #discretization unit in hours
 dw = [1,3,5,7] #length of the sliding window of previous features, in units of dt
 
 all_combs = list(itertools.product(dt, dw))
