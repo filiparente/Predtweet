@@ -339,7 +339,7 @@ def main():
                     idx += 1
 
             del dataset
-            logger.info("Number of examples in batch nº" + str(step)+" : " + str(len(X)))
+            logger.info("Number of examples in batch n" + str(step)+" : " + str(len(X)))
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO É PARA TIRAR?
