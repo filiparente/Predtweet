@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 #from pyTweetCleaner import TweetCleaner
 from preprocess import twokenize
 from pathlib import Path
+import pycld2 as cld2
 
 #current path
 cpath = Path.cwd()
@@ -25,7 +26,7 @@ pr = cProfile.Profile()
 pr.enable()
 
 def get_cleaned_text(sentence):
-    return " ".join(twokenize.tokenize(sentence)).encode('utf-8')
+    return " ".join(twokenize.tokenize(sentence))#.encode('utf-8')
 
 def load_data(path, chunks=False):
     # Load the bitcoin data
@@ -128,101 +129,106 @@ n_en_sent = 0
 n_tot_sent = 0
 
 chunksize = 500000
+tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
+                    
 field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
 for df_chunk in df:
     print("Processing chunk n " + str(n_chunks+1))
     n_chunks += 1
+    if n_chunks>14:
+        # Assert that the chunk is chronologically ordered
+        print("Checking if the chunk is chronologically ordered...")
+        df_chunk['timestamp'] = pd.to_datetime(df_chunk['timestamp'], errors='ignore')
 
-    # Assert that the chunk is chronologically ordered
-    print("Checking if the chunk is chronologically ordered...")
-    df_chunk['timestamp'] = pd.to_datetime(df_chunk['timestamp'], errors='ignore')
+        times = df_chunk['timestamp'].values
+        if all(times[:-1] <= times[1:]):
+            print("OK")
+        else:
+            print("NO") 
+            # TODO
 
-    times = df_chunk['timestamp'].values
-    if all(times[:-1] <= times[1:]):
-        print("OK")
-    else:
-        print("NO") 
-        # TODO
-
-    # After loading the dataframe, view the first 10 lines
-    df_chunk.head(10)
+        # After loading the dataframe, view the first 10 lines
+        df_chunk.head(10)
 
 
-    #embbedings = {0: (0, [0,0])} #outra forma de fazer para nao dar type error la em baixo?
-    #embbedings['tweet'] = []
+        #embbedings = {0: (0, [0,0])} #outra forma de fazer para nao dar type error la em baixo?
+        #embbedings['tweet'] = []
 
-    #Each chunk is in df format
-    if not df_chunk.empty:
-        embbedings  = {}
-        #with open("language_detection_chunk" + str(n_chunks)+ ".csv", mode='w', encoding="utf-8") as csv_file:
-           # writer = csv.DictWriter(csv_file, fieldnames=field_names)
-           # writer.writeheader()
+        #Each chunk is in df format
+        if not df_chunk.empty:
+            embbedings  = {}
+            #with open("language_detection_chunk" + str(n_chunks)+ ".csv", mode='w', encoding="utf-8") as csv_file:
+            # writer = csv.DictWriter(csv_file, fieldnames=field_names)
+            # writer.writeheader()
 
-        nRow, nCol = df_chunk.shape
-        print('There are '+str(nRow)+' rows and '+str(nCol)+' columns')
+            nRow, nCol = df_chunk.shape
+            print('There are '+str(nRow)+' rows and '+str(nCol)+' columns')
 
-        # ENCODING PHASE
-        print("\nENCODING PHASE\n")
-        # `encode` will:
-        #   (1) Tokenize the sentence (tweet).
-        #   (2) Prepend the `[CLS]` token to the start.
-        #   (3) Append the `[SEP]` token to the end.
-        #   (4) Map tokens to their IDs.
-        #   (5) Pad the sequence to the maximum length (512)  -> indivual tokens.
-        #   (6) The individual tokens for each word in the sentence (tweet) are fed to the model, 
-        #       which is a BERT transformer fine-tuned to achieve better sentence encodings. It outputs the sentence embbedings.
-                
-
-        bar = progressbar.ProgressBar(maxval=nRow, widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage()])
-        bar.start()
-
-        # For all tweets
-        for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
-            tweet_time = df_chunk['timestamp'][tweet]
-                
-            n_tot_sent += 1
-            bar.update(tweet-(n_chunks-1)*chunksize+1)
-            sentence = df_chunk['text'][tweet] #sentence/tweet to encode
-                
-            if isinstance(sentence, str):
-                try:
-                    language = detect(sentence)
-                except:
-                    language = 'none'
+            # ENCODING PHASE
+            print("\nENCODING PHASE\n")
+            # `encode` will:
+            #   (1) Tokenize the sentence (tweet).
+            #   (2) Prepend the `[CLS]` token to the start.
+            #   (3) Append the `[SEP]` token to the end.
+            #   (4) Map tokens to their IDs.
+            #   (5) Pad the sequence to the maximum length (512)  -> indivual tokens.
+            #   (6) The individual tokens for each word in the sentence (tweet) are fed to the model, 
+            #       which is a BERT transformer fine-tuned to achieve better sentence encodings. It outputs the sentence embbedings.
                     
-                # Only read english sentences
-                if language=='en': 
-                    n_en_sent += 1
 
-                    # CLEANING PHASE
-                    #sentence = tc.get_cleaned_text(sentence)
-                    sentence = get_cleaned_text(sentence)
-                    if len(sentence)>0:
+            bar = progressbar.ProgressBar(maxval=nRow, widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage()])
+            bar.start()
 
-                        #writer.writerow({'Sentence': sentence, 'Replies': df_chunk['replies'][tweet], 'Likes': df_chunk['likes'][tweet], 'Retweets':df_chunk['retweets'][tweet],'English': 'YES'})
-                        sentence_embedding = model.encode([sentence.decode('utf-8')])
-
-                        #embbedings['tweet'].append({
-                        #    'id': df_chunk['id'][tweet],
-                        #    'timestamp': df_chunk['timestamp'][tweet],
-                        #    'embbeding': sentence_embedding
-                        #})
-                        #embbedings[df_chunk['id'][tweet]] = (int(df_chunk['timestamp'].astype(np.int64)[tweet]), sentence_embedding)
-                        embbedings[int(df_chunk['timestamp'].astype(np.int64)[tweet])] = sentence_embedding[0].tolist()
+            # For all tweets
+            for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
+                tweet_time = df_chunk['timestamp'][tweet]
+                    
+                n_tot_sent += 1
+                bar.update(tweet-(n_chunks-1)*chunksize+1)
+                sentence = df_chunk['text'][tweet] #sentence/tweet to encode
+                    
+                if isinstance(sentence, str):
+                    try:
+                        _, _, details = cld2.detect(sentence)#detect(sentence)
+                        language= details[0][1]
+                    except:
+                        language = 'none'
                         
-                        #print(df_chunk['timestamp'][tweet])
-               # else:
-               #     writer.writerow({'Sentence': sentence, 'Replies': df_chunk['replies'][tweet], 'Likes': df_chunk['likes'][tweet], 'Retweets':df_chunk['retweets'][tweet], 'English': 'NO'})
-                        
-        bar.finish()
+                    # Only read english sentences
+                    if language=='en': 
+                        n_en_sent += 1
 
-        if len(embbedings)>0:
-            # Save json 
-            with open("/mnt/hdd_disk2/frente/embbedings_chunk" + str(n_chunks) +".txt", 'w') as outfile:
-                json.dump(embbedings, outfile)
+                        # CLEANING PHASE
+                        #sentence = tc.get_cleaned_text(sentence)
+                        sentence = get_cleaned_text(sentence)
+                        if len(sentence)>0:
 
-        #csv_file.close()
+                            #writer.writerow({'Sentence': sentence, 'Replies': df_chunk['replies'][tweet], 'Likes': df_chunk['likes'][tweet], 'Retweets':df_chunk['retweets'][tweet],'English': 'YES'})
+                            #sentence_embedding = model.encode([sentence.decode('utf-8')])
+                            
+                            input_ids = torch.tensor(tokenizer.encode(sentence, add_special_tokens=True)).unsqueeze(0)  # Batch size 1
+            
+                            #embbedings['tweet'].append({
+                            #    'id': df_chunk['id'][tweet],
+                            #    'timestamp': df_chunk['timestamp'][tweet],
+                            #    'embbeding': sentence_embedding
+                            #})
+                            #embbedings[df_chunk['id'][tweet]] = (int(df_chunk['timestamp'].astype(np.int64)[tweet]), sentence_embedding)
+                            embbedings[int(df_chunk['timestamp'].astype(np.int64)[tweet])] = input_ids.tolist() #sentence_embedding[0].tolist()
+                            
+                            #print(df_chunk['timestamp'][tweet])
+                # else:
+                #     writer.writerow({'Sentence': sentence, 'Replies': df_chunk['replies'][tweet], 'Likes': df_chunk['likes'][tweet], 'Retweets':df_chunk['retweets'][tweet], 'English': 'NO'})
+                            
+            bar.finish()
+
+            if len(embbedings)>0:
+                # Save json 
+                with open(cpath.joinpath(r'bitcoin_data/ids_chunk' + str(n_chunks) +".txt"), 'w') as outfile:#with open("/mnt/hdd_disk2/frente/embbedings_chunk" + str(n_chunks) +".txt", 'w') as outfile:
+                    json.dump(embbedings, outfile)
+
+            #csv_file.close()
           
 
 # Percentage of english sentences

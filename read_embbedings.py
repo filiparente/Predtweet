@@ -71,6 +71,7 @@ def timedifference(timestamps):
 def sortKeyFunc(s):
     return int(os.path.basename(s)[16:-4])
 
+
 def get_datasets(path, window_size, disc_unit):
     # disc_unit is no longer a string but a number corresponding to the number of hours
     #if disc_unit == 'min':

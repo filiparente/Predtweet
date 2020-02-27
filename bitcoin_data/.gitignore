@@ -4,3 +4,5 @@ sorted_filtered_tweets.csv
 sorted_tweets.csv
 tweets.csv
 bitcoin_dataset.txt
+embbedings_chunk*.txt
+ids_chunk*.txt
