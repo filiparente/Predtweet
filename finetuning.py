@@ -197,7 +197,7 @@ def main():
 
     # Approximation of batch_size
     # Select a batch size for training. For fine-tuning BERT on a specific task, the authors recommend a batch size of 16 or 32, which represent 32 sample points (features, embbedings) after preprocessing is done
-    batch_size_ = 16 #32 
+    batch_size_ = 1 #32 
     approx = 30 #~ number of tweets in one hour
     batch_size = round(batch_size_+window_size*discretization_unit*approx-1)
 
@@ -305,10 +305,9 @@ def main():
         # Train the data for one epoch
         for step, batch in enumerate(train_dataloader):       
             #with torch.no_grad():   #   depois tirar isto!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
             #Get timestamps
             timestamps_ = batch['timestamp']
-            
+        
             dataset = {}
             dataset['disc_unit'] = discretization_unit
             dataset['window_size'] = window_size
@@ -328,25 +327,25 @@ def main():
                 nn = 0
                 while idx < length:
                     start = dataset['input_ids'][idx]
-                    
+                
                     X[nn] = []
                     for i in range(1,1+window_size):
-    
+
                         X[nn].append({'weight':wi[i-1], 'input_ids': torch.stack([vec.type(torch.LongTensor) for vec in dataset['input_ids'][idx-i]['avg_emb']]).to(device)}) 
-                    
+                
                     y[nn] = int(start['count'])
                     nn+=1
                     idx += 1
 
             del dataset
-            logger.info("Number of examples in batch n" + str(step)+" : " + str(len(X)))
+            logger.info("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO E PARA TIRAR?
 
             # Forward pass
             if len(X)>=1: #the batch must contain, at least, one example, otherwise don't do forward
-                loss, logits = model(input_ids = X, labels=torch.tensor(y).to(device))
+                loss, logits = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size)
                 loss.requires_grad = True
                 train_loss_set.append(loss.item())    
 
@@ -408,26 +407,61 @@ def main():
         nb_eval_steps, nb_eval_examples = 0, 0
 
         # Evaluate data for one epoch
-        for batch in validation_dataloader:
+        for step, batch in dev_dataloader:
             # Add batch to GPU
-            batch = tuple(t.to(device) for t in batch)
+            #batch = tuple(t.to(device) for t in batch)
             # Unpack the inputs from our dataloader
-            b_input, b_labels = batch
-            # Telling the model not to compute or store gradients, saving memory and speeding up validation
-            with torch.no_grad():
-                # Forward pass, calculate logit predictions
-                logits = model(inputs_embeds = b_input.float())
+            #b_input, b_labels = batch
+            #Get timestamps
+            timestamps_ = batch['timestamp']
+        
+            dataset = {}
+            dataset['disc_unit'] = discretization_unit
+            dataset['window_size'] = window_size
+            dataset['input_ids'] = []
+
+            dataset, window_n, prev_date, next_date, store_embs, counts = discretize_batch(batch, timestamps_, step+1, \
+            delta, dataset, window_n, prev_date, next_date, store_embs, counts) #step+1 because enumeration starts at 0 index
+
+            #For each individual timestamp
+            if window_size>len(dataset['input_ids']):
+                print("ERROR. WINDOW_SIZE IS TOO BIG!")
+            else:                                                 
+                idx = window_size
+                length = len(dataset['input_ids'])
+                X = [np.array([]) for i in range(length-window_size)]
+                y = np.zeros(length-window_size)
+                nn = 0
+                while idx < length:
+                    start = dataset['input_ids'][idx]
                 
-            # Move logits and labels to CPU
-            logits = logits[0].detach().cpu().numpy()
-            #print(logits)
-            label_ids = b_labels.to('cpu').numpy()
+                    X[nn] = []
+                    for i in range(1,1+window_size):
 
-            tmp_eval_accuracy = flat_accuracy(logits, label_ids)
-            dev_acc_set.append(tmp_eval_accuracy)  
+                        X[nn].append({'weight':wi[i-1], 'input_ids': torch.stack([vec.type(torch.LongTensor) for vec in dataset['input_ids'][idx-i]['avg_emb']]).to(device)}) 
+                
+                    y[nn] = int(start['count'])
+                    nn+=1
+                    idx += 1
 
-            eval_accuracy += tmp_eval_accuracy
-            nb_eval_steps += 1
+            del dataset
+            logger.info("Number of examples in validation batch n" + str(step)+" : " + str(len(X)))
+            # Telling the model not to compute or store gradients, saving memory and speeding up validation
+            if len(X)>=1:
+                with torch.no_grad():
+                    # Forward pass, calculate logit predictions
+                    logits = model(input_ids = X, weights=wi, window_size=window_size)
+                    
+                # Move logits and labels to CPU
+                logits = logits[0].detach().cpu().numpy()
+                #print(logits)
+                label_ids = y
+
+                tmp_eval_accuracy = flat_accuracy(logits, label_ids)
+                dev_acc_set.append(tmp_eval_accuracy)  
+
+                eval_accuracy += tmp_eval_accuracy
+                nb_eval_steps += 1
 
         print("Validation Accuracy: {}".format(eval_accuracy/nb_eval_steps))
 
