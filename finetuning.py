@@ -351,8 +351,7 @@ def main():
                 a = list(model.parameters())[199].clone()
                 a2 = list(model.parameters())[200].clone()
 
-                model.double()
-                
+                                
                 #if len(X)>=1:  #the batch must contain, at least, one example, otherwise don't do backward and don't update anything
                 # Backward pass
                 loss.backward()
