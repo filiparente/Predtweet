@@ -197,8 +197,8 @@ def main():
 
     # Approximation of batch_size
     # Select a batch size for training. For fine-tuning BERT on a specific task, the authors recommend a batch size of 16 or 32, which represent 32 sample points (features, embbedings) after preprocessing is done
-    batch_size_ = 16 #32 
-    approx = 60 #~ number of tweets in one hour
+    batch_size_ = 1#32 
+    approx = 30 #~ number of tweets in one hour
     batch_size = round(batch_size_+window_size*discretization_unit*approx-1)
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
@@ -383,7 +383,7 @@ def main():
                 b2 = list(model.parameters())[200].clone()
                 
                 # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-                if step%1==0:
+                if step%50==0:
                     print("Check if the classifier layer weights are being updated:")
                     print("Weight W: "+str(not torch.equal(a.data, b.data)))  
                     print("Bias b: " + str(not torch.equal(a2.data, b2.data)))
