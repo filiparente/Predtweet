@@ -10,7 +10,7 @@ import numpy as np
 import itertools
 import math
 
-MAX_LEN = 200#512
+MAX_LEN = 512
 
 class MyDataset(Dataset):
     def __init__(self, json_filename):
