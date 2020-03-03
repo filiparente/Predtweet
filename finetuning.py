@@ -198,7 +198,7 @@ def main():
     # Approximation of batch_size
     # Select a batch size for training. For fine-tuning BERT on a specific task, the authors recommend a batch size of 16 or 32, which represent 32 sample points (features, embbedings) after preprocessing is done
     batch_size_ = 1#32 
-    approx = 30 #~ number of tweets in one hour
+    approx = 45 #~ number of tweets in one hour
     batch_size = round(batch_size_+window_size*discretization_unit*approx-1)
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
@@ -302,23 +302,23 @@ def main():
         next_date = None
         store_embs = np.array([])
 
+        dataset = {}
+        dataset['disc_unit'] = discretization_unit
+        dataset['window_size'] = window_size
+        dataset['input_ids'] = []
+
         # Train the data for one epoch
         for step, batch in enumerate(train_dataloader):       
             #with torch.no_grad():   #   depois tirar isto!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             #Get timestamps
             timestamps_ = batch['timestamp']
-    
-            dataset = {}
-            dataset['disc_unit'] = discretization_unit
-            dataset['window_size'] = window_size
-            dataset['input_ids'] = []
 
             dataset, window_n, prev_date, next_date, store_embs, counts = discretize_batch(batch, timestamps_, step+1, \
             delta, dataset, window_n, prev_date, next_date, store_embs, counts) #step+1 because enumeration starts at 0 index
 
             #For each individual timestamp
-            if window_size>len(dataset['input_ids']):
-                print("ERROR. WINDOW_SIZE IS TOO BIG!")
+            if window_size>=len(dataset['input_ids']):
+                print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
             else:                                                 
                 idx = window_size
                 length = len(dataset['input_ids'])
@@ -337,8 +337,10 @@ def main():
                     nn+=1
                     idx += 1
 
-            del dataset
-            print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
+                #del dataset
+                dataset['input_ids'] = []
+
+                print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO E PARA TIRAR?
