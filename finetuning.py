@@ -344,6 +344,9 @@ def main():
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
     train_dataloader, dev_dataloader, test_dataloader = load_inputids(path = dataset_path, batch_size=batch_size)
 
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
     torch.save(test_dataloader, args.output_dir+'/test_dataloader.pth')
 
     num_train_examples = int(1653*0.8)
