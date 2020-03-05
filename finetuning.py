@@ -340,7 +340,7 @@ def main():
     # Approximation of batch_size
     # Select a batch size for training. For fine-tuning BERT on a specific task, the authors recommend a batch size of 16 or 32, which represent 32 sample points (features, embbedings) after preprocessing is done
     batch_size_ = 1#32 
-    approx = 45 #~ number of tweets in one hour
+    approx = 30 #~ number of tweets in one hour
     batch_size = round(batch_size_+window_size*discretization_unit*approx-1)
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
