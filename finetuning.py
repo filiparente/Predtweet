@@ -317,6 +317,7 @@ def main():
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument("--logging_steps", type=int, default=500, help="Log every X updates steps.")
     parser.add_argument("--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step.")
+    parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     args = parser.parse_args()
     print(args) 
 
