@@ -116,14 +116,13 @@ class TweetBatch():
         window_size = self.dataset['window_size']
         length = len(self.dataset['input_ids'])
 
-        X = [np.array([]) for i in range(length-window_size)]
-        y = np.zeros(length-window_size)
-
         if window_size >= length:
             print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
+            return np.array([]), np.array([])
         else:                                                 
             idx = window_size
-            
+            X = [np.array([]) for i in range(length-window_size)]
+            y = np.zeros(length-window_size)
             nn = 0
             while idx < length:
                 start = self.dataset['input_ids'][idx]
@@ -142,7 +141,7 @@ class TweetBatch():
 
             print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
 
-        return X,y
+            return X,y
 
 def set_seed(args,n_gpu):
     random.seed(args.seed)
