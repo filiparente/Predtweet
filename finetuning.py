@@ -19,11 +19,135 @@ import pandas as pd
 from transformers import AdamW,  get_linear_schedule_with_warmup
 import os
 import logging
+import random
+from sklearn.metrics import mean_squared_error
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    from tensorboardX import SummaryWriter
 
 logger = logging.getLogger(__name__)
 
 #current path
 cpath = Path.cwd()
+
+class TweetBatch():
+    def __init__(self, discretization_unit, window_size):
+        dataset = {}
+        dataset['disc_unit'] = discretization_unit
+        dataset['window_size'] = window_size
+        dataset['input_ids'] = []
+
+        self.delta = timedelta(hours=discretization_unit)
+        self.dataset = dataset
+        self.window_n = 1
+        self.prev_date = None
+        self.next_date = None
+        self.store_embs = np.array([])
+        self.counts = 0
+
+    def discretize_batch(self, batch, step, n_batch):
+        #Get timestamps
+        timestamps_ = batch['timestamp']
+
+        timestamps = pd.to_datetime(timestamps_)
+
+        if n_batch == 1:
+            self.prev_date = timestamps[0]
+            self.next_date = self.prev_date+self.delta 
+            self.store_embs = np.array([])
+        
+        end_date = timestamps_[-1]
+        
+        while(1):  
+            mask = np.logical_and(timestamps>=self.prev_date, timestamps<self.next_date)
+
+            if sum(mask)==0:
+                #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, store_embs, counts, store_embs)
+                self.store(self.store_embs)
+                continue
+
+            self.counts += sum(mask)
+
+            try:
+                aux = batch['input_ids'][mask]
+            except:
+                print("error")
+
+            if self.store_embs.size:
+                try:
+                    avg_emb = torch.cat((self.store_embs, aux), 0)#np.concatenate(store_embs, aux)
+                except:
+                    print("error")
+            else:
+                avg_emb = aux
+            
+            #if the last index is the date at the end of the batch, we need to open the next batch in order to
+            #check if there are more input ids to store in the corresponding window
+            if batch['timestamp'][mask][-1] == end_date:
+                self.store_embs = avg_emb
+                break
+
+            #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
+            self.store(avg_emb)
+
+        #return dataset, window_n, prev_date, next_date, store_embs, counts
+    
+    def store(self, avg_emb):
+        self.dataset['input_ids'].append({
+            'id': self.window_n,
+            'start_date': self.prev_date,
+            'avg_emb': avg_emb,
+            'count': self.counts,
+        })
+        self.window_n += 1
+
+        self.store_embs = np.array([])
+        self.counts = 0
+
+        self.prev_date = self.next_date
+        self.next_date = self.prev_date+self.delta
+
+        #return dataset, window_n, store_embs, counts, prev_date, next_date
+
+    def sliding_window(self, wi, device, step):
+        #For each individual timestamp
+        window_size = self.dataset['window_size']
+        length = len(self.dataset['input_ids'])
+
+        if window_size >= length:
+            print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
+        else:                                                 
+            idx = window_size
+            X = [np.array([]) for i in range(length-window_size)]
+            y = np.zeros(length-window_size)
+            nn = 0
+            while idx < length:
+                start = self.dataset['input_ids'][idx]
+        
+                X[nn] = []
+                for i in range(1,1+window_size):
+
+                    X[nn].append({'weight':wi[i-1], 'input_ids': torch.stack([vec.type(torch.LongTensor) for vec in self.dataset['input_ids'][idx-i]['avg_emb']]).to(device)}) 
+        
+                y[nn] = int(start['count'])
+                nn+=1
+                idx += 1
+
+            #del dataset
+            self.dataset['input_ids'] = []
+
+            print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
+
+            return X,y
+
+def set_seed(args,n_gpu):
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
 
 '''This function receives the time difference vector and calculates the weight for each timestamp,
 depending on the temporal distance to the most recent timestamp. It uses an exponential function.
@@ -78,65 +202,6 @@ def timedifference(timestamps):
         
     return timediff_vec
 
-
-def store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs):
-    dataset['input_ids'].append({
-        'id': window_n,
-        'start_date': prev_date,
-        'avg_emb': avg_emb,
-        'count': counts,
-    })
-    window_n += 1
-
-    store_embs = np.array([])
-    counts = 0
-
-    prev_date = next_date
-    next_date = prev_date+delta
-
-    return dataset, window_n, store_embs, counts, prev_date, next_date
-
-def discretize_batch(batch, timestamps_, n_batch, delta, dataset, window_n, prev_date, next_date, store_embs, counts):   
-    timestamps = pd.to_datetime(timestamps_)
-
-    if n_batch == 1:
-        prev_date = timestamps[0]
-        next_date = prev_date+delta 
-        store_embs = np.array([])
-    
-    end_date = timestamps_[-1]
-    
-    while(1):  
-        mask = np.logical_and(timestamps>=prev_date, timestamps<next_date)
-
-        if sum(mask)==0:
-            dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, store_embs, counts, store_embs)
-            continue
-
-        counts += sum(mask)
-
-        try:
-            aux = batch['input_ids'][mask]
-        except:
-            print("error")
-
-        if store_embs.size:
-            try:
-                avg_emb = torch.cat((store_embs, aux), 0)#np.concatenate(store_embs, aux)
-            except:
-                print("error")
-        else:
-            avg_emb = aux
-        
-        #if the last index is the date at the end of the batch, we need to open the next batch in order to
-        #check if there are more input ids to store in the corresponding window
-        if batch['timestamp'][mask][-1] == end_date:
-            store_embs = avg_emb
-            break
-
-        dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
-
-    return dataset, window_n, prev_date, next_date, store_embs, counts
 # Function to calculate the accuracy of our predictions vs labels
 def flat_accuracy(preds, labels):
     #pred_flat = np.argmax(preds, axis=1).flatten()
@@ -164,28 +229,102 @@ def train_test_split(features, labels, percentages, window_size):
     test_labels = labels[prev+window_size:prev+window_size+test_length]
 
     return train_inputs, train_labels, validation_inputs, validation_labels, test_inputs, test_labels
+
+def evaluate(args, model, eval_dataloader, wi, prefix=""):
+    # Validation
+    eval_output_dir = args.output_dir
+
+    results = {} 
+
+    if not os.path.exists(eval_output_dir):
+        os.makedirs(eval_output_dir)
     
+    # Eval!
+    logger.info("***** Running evaluation {} *****".format(prefix))
+    num_eval_examples = int(1653*0.2)
+    logger.info("  Num examples = %d", num_eval_examples)
+    logger.info("  Batch size = %d", 8)
+
+    eval_loss = 0.0
+    nb_eval_steps = 0
+    preds = None
+    out_label_ids = None
+
+    tweet_batch = TweetBatch(args.discretization_unit, args.window_size)
+    n_batch = 1
+
+    eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
+
+    for step, batch in enumerate(eval_iterator):
+        # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
+        model = model.eval()         
+
+        tweet_batch.discretize_batch(batch, step+1, n_batch)
+        n_batch += 1
+
+        X, y = tweet_batch.sliding_window(wi, device, step+1)
+
+        # Forward pass
+        if len(X)>=1: #the batch must contain, at least, one example, otherwise don't do forward  
+            with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
+                outputs = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=args.window_size)   
+
+                tmp_eval_loss, logits = outputs[:2]
+
+                eval_loss += tmp_eval_loss.mean().item()
+            nb_eval_steps += 1
+
+            if preds is None:
+                preds = logits.detach().cpu().numpy()
+                out_label_ids = y
+            else:
+                preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+                out_label_ids = np.append(out_label_ids, y, axis=0)
+    
+    eval_loss = eval_loss / nb_eval_steps
+
+    preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
+    
+    #since we are doing regression, our metric will be the mse
+    result = mean_squared_error(preds, out_label_ids) #compute_metrics(eval_task, preds, out_label_ids)
+    results.update(result)
+
+    output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
+    with open(output_eval_file, "w") as writer:
+        logger.info("***** Eval results {} *****".format(prefix))
+        for key in sorted(result.keys()):
+            logger.info("  %s = %s", key, str(result[key]))
+            writer.write("%s = %s\n" % (key, str(result[key])))
+
+    return results
+                
 def main():
     parser = argparse.ArgumentParser(description='Finetune Bert for a regression task, to predict the tweet counts from the embbedings.')
     
     parser.add_argument('--dataset_path', default='bitcoin_data', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument("--save_steps", type=int, default=300, help="Save checkpoint every X updates steps.") #MUDAR ISTO PARA 300!!!!
+    parser.add_argument("--save_steps", type=int, default=300, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
     parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
     parser.add_argument("--model_name_or_path", default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\finetuning_outputs\checkpoint-10', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='finetuning_outputs', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    
+    parser.add_argument("--num_train_epochs", default=4, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--logging_steps", type=int, default=500, help="Log every X updates steps.")
+    parser.add_argument("--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step.")
     args = parser.parse_args()
     print(args) 
+
+    tb_writer = SummaryWriter()
 
     dataset_path = cpath.joinpath(args.dataset_path)
 
     discretization_unit = args.discretization_unit
-    delta = timedelta(hours=discretization_unit)
     window_size = args.window_size
 
     #Calculates the timedifference
@@ -205,32 +344,20 @@ def main():
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
     train_dataloader, dev_dataloader, test_dataloader = load_inputids(path = dataset_path, batch_size=batch_size)
 
+    torch.save(test_dataloader, cpath.joinpath(args.output_dir+'/test_dataloader.pth'))
+
     num_train_examples = int(1653*0.8)
 
     #batch_size = 5 #approximate
 
     #Number of times the gradients are accumulated before a backward/update pass
-    gradient_accumulation_steps = 1
+    gradient_accumulation_steps = args.gradient_accumulation_steps
 
     # Number of training epochs, for finetuning in a specific NLP task, the authors recommend 2-4 epochs only
-    epochs = 4
-
-    # Check if continuing training from a checkpoint
-    if os.path.exists(args.model_name_or_path): #Path to pre-trained model
-        # set global_step to global_step of last saved checkpoint from model path
-        global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
-        epochs_trained = global_step // (num_train_examples // gradient_accumulation_steps)
-        steps_trained_in_current_epoch = global_step % (num_train_examples // gradient_accumulation_steps)
-
-        logger.info("  Continuing training from checkpoint, will skip to saved global_step")
-        logger.info("  Continuing training from epoch %d", epochs_trained)
-        logger.info("  Continuing training from global step %d", global_step)
-        logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
+    epochs = args.num_train_epochs
 
     # Load BertForSequenceClassification, the pretrained BERT model with a single linear classification layer on top. 
     model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=1)
-
-    model.cuda()
 
     # If there's a GPU available...
     if torch.cuda.is_available():    
@@ -241,6 +368,11 @@ def main():
         print('There are %d GPU(s) available.' % torch.cuda.device_count())
 
         print('We will use the GPU:', torch.cuda.get_device_name(0))
+
+        n_gpu = 1
+
+        model.cuda()
+
     # If not...
     else:
         print('No GPU available, using the CPU instead.')
@@ -278,220 +410,173 @@ def main():
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
+    # Train!
+    logger.info("***** Running training *****")
+    logger.info("  Num examples = %d", num_train_examples)
+    logger.info("  Num Epochs = %d", epochs)
+    logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+    logger.info("  Total optimization steps = %d", num_train_optimization_steps)
 
     # Store our loss and accuracy for plotting
     train_loss_set = []
-    dev_acc_set = []
 
     global_step = 0
+    epochs_trained = 0
+    steps_trained_in_current_epoch = 0
+
+    # Check if continuing training from a checkpoint
+    if os.path.exists(args.model_name_or_path): #Path to pre-trained model
+        # set global_step to global_step of last saved checkpoint from model path
+        global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
+        epochs_trained = global_step // (num_train_examples // gradient_accumulation_steps)
+        steps_trained_in_current_epoch = global_step % (num_train_examples // gradient_accumulation_steps)
+
+        logger.info("  Continuing training from checkpoint, will skip to saved global_step")
+        logger.info("  Continuing training from epoch %d", epochs_trained)
+        logger.info("  Continuing training from global step %d", global_step)
+        logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
+
+    tr_loss, logging_loss = 0.0, 0.0
+
+    model.zero_grad()
 
     # trange is a tqdm wrapper around the normal python range
-    for _ in trange(epochs, desc="Epoch"):
+    train_iterator = trange(
+        epochs_trained, epochs, desc="Epoch",
+    )
+
+    set_seed(args, n_gpu)  # Added here for reproductibility
     
-        # Training   
-        # Set our model to training mode (as opposed to evaluation mode)
-        model = model.train()
+    #Training
+    for _ in train_iterator:
+        epoch_iterator = tqdm(train_dataloader, desc="Iteration") 
         
         # Tracking variables
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
 
-        window_n = 1
-        counts = 0
-        prev_date = None
-        next_date = None
-        store_embs = np.array([])
-
-        dataset = {}
-        dataset['disc_unit'] = discretization_unit
-        dataset['window_size'] = window_size
-        dataset['input_ids'] = []
+        tweet_batch = TweetBatch(discretization_unit, window_size)
+        n_batch = 1
 
         # Train the data for one epoch
-        for step, batch in enumerate(train_dataloader):       
-            #with torch.no_grad():   #   depois tirar isto!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            #Get timestamps
-            timestamps_ = batch['timestamp']
+        for step, batch in enumerate(epoch_iterator):  
 
-            dataset, window_n, prev_date, next_date, store_embs, counts = discretize_batch(batch, timestamps_, step+1, \
-            delta, dataset, window_n, prev_date, next_date, store_embs, counts) #step+1 because enumeration starts at 0 index
-
-            #For each individual timestamp
-            if window_size>=len(dataset['input_ids']):
-                print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
-            else:                                                 
-                idx = window_size
-                length = len(dataset['input_ids'])
-                X = [np.array([]) for i in range(length-window_size)]
-                y = np.zeros(length-window_size)
-                nn = 0
-                while idx < length:
-                    start = dataset['input_ids'][idx]
+            # Skip past any already trained steps if resuming training
+            if steps_trained_in_current_epoch > 0:
+                steps_trained_in_current_epoch -= 1
+                continue
             
-                    X[nn] = []
-                    for i in range(1,1+window_size):
+            # Set our model to training mode (as opposed to evaluation mode)
+            model = model.train()
 
-                        X[nn].append({'weight':wi[i-1], 'input_ids': torch.stack([vec.type(torch.LongTensor) for vec in dataset['input_ids'][idx-i]['avg_emb']]).to(device)}) 
-            
-                    y[nn] = int(start['count'])
-                    nn+=1
-                    idx += 1
+            tweet_batch.discretize_batch(batch, step+1, n_batch)
+            n_batch += 1
 
-                #del dataset
-                dataset['input_ids'] = []
-
-                print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
+            X, y = tweet_batch.sliding_window(wi, device, step+1)
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO E PARA TIRAR?
 
             # Forward pass
             if len(X)>=1: #the batch must contain, at least, one example, otherwise don't do forward
-                loss, logits = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size)
-                train_loss_set.append(loss.item())    
+                
+                loss, logits = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size)   
+
+                if n_gpu > 1:
+                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                if args.gradient_accumulation_steps > 1:
+                    loss = loss / args.gradient_accumulation_steps
 
                 a = list(model.parameters())[199].clone()
                 a2 = list(model.parameters())[200].clone()
 
-                #if len(X)>=1:  #the batch must contain, at least, one example, otherwise don't do backward and don't update anything
                 # Backward pass
                 loss.backward()
 
-                # Update parameters and take a step using the computed gradient
-                optimizer.step()
-                scheduler.step() #update learning rate schedule
-                model.zero_grad()
-                global_step += 1
-
-                if args.save_steps>0 and global_step%args.save_steps==0:
-                    # Save model checkpoint
-                    output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-                    model_to_save = (
-                        model.module if hasattr(model, "module") else model
-                    )  # Take care of distributed/parallel training
-                    model_to_save.save_pretrained(output_dir)
-
-                    torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                    logger.info("Saving model checkpoint to %s", output_dir)
-
-                    torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                    torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                    logger.info("Saving optimizer and scheduler states to %s", output_dir)
-
-
-                b = list(model.parameters())[199].clone()
-                b2 = list(model.parameters())[200].clone()
-                
-                # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-                if step%50==0:
-                    print("Check if the classifier layer weights are being updated:")
-                    print("Weight W: "+str(not torch.equal(a.data, b.data)))  
-                    print("Bias b: " + str(not torch.equal(a2.data, b2.data)))
-                    
+                #Store 
+                train_loss_set.append(loss.item()) 
                 
                 # Update tracking variables
                 tr_loss += loss.item()
                 nb_tr_examples += len(X) #b_input.size(0)
                 nb_tr_steps += 1
 
-        print("Train loss: {}".format(tr_loss/nb_tr_steps))
-          
-        # Validation
+                print("Train loss: {}".format(tr_loss/nb_tr_steps))
 
-        # Put model in evaluation mode to evaluate loss on the validation set
-        model = model.eval()
+                if (step + 1) % args.gradient_accumulation_steps == 0:
 
-        # Tracking variables 
-        eval_loss, eval_accuracy = 0, 0
-        nb_eval_steps, nb_eval_examples = 0, 0
-
-        # Evaluate data for one epoch
-        for step, batch in dev_dataloader:
-            # Add batch to GPU
-            #batch = tuple(t.to(device) for t in batch)
-            # Unpack the inputs from our dataloader
-            #b_input, b_labels = batch
-            #Get timestamps
-            timestamps_ = batch['timestamp']
-        
-            dataset = {}
-            dataset['disc_unit'] = discretization_unit
-            dataset['window_size'] = window_size
-            dataset['input_ids'] = []
-
-            dataset, window_n, prev_date, next_date, store_embs, counts = discretize_batch(batch, timestamps_, step+1, \
-            delta, dataset, window_n, prev_date, next_date, store_embs, counts) #step+1 because enumeration starts at 0 index
-
-            #For each individual timestamp
-            if window_size>len(dataset['input_ids']):
-                print("ERROR. WINDOW_SIZE IS TOO BIG!")
-            else:                                                 
-                idx = window_size
-                length = len(dataset['input_ids'])
-                X = [np.array([]) for i in range(length-window_size)]
-                y = np.zeros(length-window_size)
-                nn = 0
-                while idx < length:
-                    start = dataset['input_ids'][idx]
-                
-                    X[nn] = []
-                    for i in range(1,1+window_size):
-
-                        X[nn].append({'weight':wi[i-1], 'input_ids': torch.stack([vec.type(torch.LongTensor) for vec in dataset['input_ids'][idx-i]['avg_emb']]).to(device)}) 
-                
-                    y[nn] = int(start['count'])
-                    nn+=1
-                    idx += 1
-
-            del dataset
-            print("Number of examples in validation batch n" + str(step)+" : " + str(len(X)))
-            # Telling the model not to compute or store gradients, saving memory and speeding up validation
-            if len(X)>=1:
-                with torch.no_grad():
-                    # Forward pass, calculate logit predictions
-                    logits = model(input_ids = X, weights=wi, window_size=window_size)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+               
+                    # Update parameters and take a step using the computed gradient
+                    optimizer.step()
+                    scheduler.step() #update learning rate schedule
+                    model.zero_grad()
+                    global_step += 1
                     
-                # Move logits and labels to CPU
-                logits = logits[0].detach().cpu().numpy()
-                #print(logits)
-                label_ids = y
+                    if args.logging_steps>0 and global_step%args.logging_steps==0:
+                        logs={}
 
-                tmp_eval_accuracy = flat_accuracy(logits, label_ids)
-                dev_acc_set.append(tmp_eval_accuracy)  
+                        if args.evaluate_during_training: 
+                            results = evaluate(args, model, dev_dataloader, wi)
+                            for key, value in results.items():
+                                eval_key = "eval_{}".format(key)
+                                logs[eval_key] = value
 
-                eval_accuracy += tmp_eval_accuracy
-                nb_eval_steps += 1
+                        # DUVIDA: Pedir à zita para explicar isto
+                        loss_scalar = (tr_loss - logging_loss) / args.logging_steps
+                        learning_rate_scalar = scheduler.get_lr()[0]
+                        logs["learning_rate"] = learning_rate_scalar
+                        logs["loss"] = loss_scalar
+                        logging_loss = tr_loss
 
-        print("Validation Accuracy: {}".format(eval_accuracy/nb_eval_steps))
+                        for key, value in logs.items():
+                            tb_writer.add_scalar(key, value, global_step)
+                        print(json.dumps({**logs, **{"step": global_step}}))
 
+                    if args.save_steps>0 and global_step%args.save_steps==0:
+                        # Save model checkpoint
+                        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        model_to_save = (
+                            model.module if hasattr(model, "module") else model
+                        )  # Take care of distributed/parallel training
+                        model_to_save.save_pretrained(output_dir)
+
+                        torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                        logger.info("Saving model checkpoint to %s", output_dir)
+
+                        torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                        torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                        logger.info("Saving optimizer and scheduler states to %s", output_dir)
+
+
+                    b = list(model.parameters())[199].clone()
+                    b2 = list(model.parameters())[200].clone()
+                
+                    # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
+                    if step%args.logging_steps==0:
+                        logger.info("Check if the classifier layer weights are being updated:")
+                        logger.info("Weight W: "+str(not torch.equal(a.data, b.data)))  
+                        logger.info("Bias b: " + str(not torch.equal(a2.data, b2.data)))
+
+            if args.max_steps > 0 and global_step > args.max_steps:
+                epoch_iterator.close()
+                break
+        if args.max_steps > 0 and global_step > args.max_steps:
+            train_iterator.close()
+            break
+
+    tb_writer.close()                
+
+    #return global_step, tr_loss/global_step  
 
     plt.figure(figsize=(15,8))
     plt.title("Training loss")
     plt.xlabel("Batch")
     plt.ylabel("Loss")
-    plt.plot(train_loss_set)
+    plt.plot(tr_loss)
     plt.show()
-
-    plt.figure(figsize=(15,8))
-    plt.title("Training loss")
-    plt.xlabel("Batch")
-    plt.ylabel("Loss")
-    plt.plot(dev_acc_set)
-    plt.show()
-
-
-def load_dataset(dataset_path):
-    with open(dataset_path,encoding='utf-8', errors='ignore', mode='r') as j:
-        data = json.loads(j.read())
-
-        features = [el['X'] for el in data['embeddings']]
-        labels = [el['y'] for el in data['embeddings']]
-
-        window_size = data['window_size']
-
-        return features, labels, window_size
 
 if __name__ == '__main__':
     main()
