@@ -134,7 +134,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
     result = glob.glob('*.{}'.format(extension))
     result = [file_ for file_ in result if re.match(r'ids_chunk[0-9]+',file_)] 
     result.sort(key=sortKeyFunc)
-    result=result[0:5]
+    #result=result[0:5]
     print("Files of chunks being analyzed: " + str(result))
 
     list_of_datasets = []

@@ -113,7 +113,7 @@ class TweetBatch():
 
         #return dataset, window_n, store_embs, counts, prev_date, next_date
 
-    def sliding_window(self, wi, device, step):
+    def sliding_window(self, wi, device, global_step):
         #For each individual timestamp
         window_size = self.dataset['window_size']
         length = len(self.dataset['input_ids'])
@@ -141,7 +141,7 @@ class TweetBatch():
             #del dataset
             self.dataset['input_ids'] = []
 
-            print("Number of examples in training batch n" + str(step)+" : " + str(len(X)))
+            print("Number of examples in training batch n" + str(global_step)+" : " + str(len(X)))
 
             return X,y
 
@@ -233,7 +233,7 @@ def train_test_split(features, labels, percentages, window_size):
 
     return train_inputs, train_labels, validation_inputs, validation_labels, test_inputs, test_labels
 
-def evaluate(args, model, eval_dataloader, wi, prefix=""):
+def evaluate(args, model, eval_dataloader, wi, device, prefix=""):
     # Validation
     eval_output_dir = args.output_dir
 
@@ -307,19 +307,19 @@ def main():
     parser.add_argument('--dataset_path', default='bitcoin_data', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument("--save_steps", type=int, default=1, help="Save checkpoint every X updates steps.") 
+    parser.add_argument("--save_steps", type=int, default=300, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
     parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
-    parser.add_argument("--model_name_or_path", default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\finetuning_outputs\checkpoint-10', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
+    parser.add_argument("--model_name_or_path", default=r'/mnt/hdd_disk2/frente/finetuning_outputs/checkpoint-1', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='finetuning_outputs', type=str, help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--num_train_epochs", default=4, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument("--logging_steps", type=int, default=500, help="Log every X updates steps.")
-    parser.add_argument("--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step.")
+    parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     args = parser.parse_args()
     print(args) 
@@ -483,7 +483,7 @@ def main():
             tweet_batch.discretize_batch(batch, step+1, n_batch)
             n_batch += 1
 
-            X, y = tweet_batch.sliding_window(wi, device, step+1)
+            X, y = tweet_batch.sliding_window(wi, device, global_step)
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO E PARA TIRAR?
@@ -513,7 +513,9 @@ def main():
                 nb_tr_steps += 1
 
                 print("Train loss: {}".format(tr_loss/nb_tr_steps))
-                pdb.set_trace()
+                
+                if global_step%15==0:
+                    pdb.set_trace()
 
                 if (step + 1) % args.gradient_accumulation_steps == 0:
 
@@ -524,17 +526,18 @@ def main():
                     scheduler.step() #update learning rate schedule
                     model.zero_grad()
                     global_step += 1
+                    print(global_step)
                     
                     if args.logging_steps>0 and global_step%args.logging_steps==0:
                         logs={}
 
                         if args.evaluate_during_training: 
-                            results = evaluate(args, model, dev_dataloader, wi)
+                            results = evaluate(args, model, dev_dataloader, wi, device)
                             for key, value in results.items():
                                 eval_key = "eval_{}".format(key)
                                 logs[eval_key] = value
 
-                        # DUVIDA: Pedir à zita para explicar isto
+                        # DUVIDA: Pedir a zita para explicar isto
                         loss_scalar = (tr_loss - logging_loss) / args.logging_steps
                         learning_rate_scalar = scheduler.get_lr()[0]
                         logs["learning_rate"] = learning_rate_scalar
