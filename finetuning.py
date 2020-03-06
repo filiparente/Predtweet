@@ -14,12 +14,14 @@ from pytorch_pretrained_bert import BertAdam
 from sentence_transformers import SentenceTransformer
 from merge_json_files import load_inputids
 from datetime import timedelta
+import time
 import pandas as pd
 from transformers import AdamW,  get_linear_schedule_with_warmup
 import os
 import logging
 import random
 from sklearn.metrics import mean_squared_error
+import cProfile
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -116,7 +118,7 @@ class TweetBatch():
         length = len(self.dataset['input_ids'])
 
         if window_size >= length:
-            print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
+            logger.info("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
             return np.array([]), np.array([])
         else:                                                 
             idx = window_size
@@ -461,17 +463,21 @@ def main():
 
         tweet_batch = TweetBatch(discretization_unit, window_size)
         n_batch = 1
+        
+        # Set our model to training mode (as opposed to evaluation mode)
+        model = model.train()
 
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
+            #if step!=0:
+            #    start_time = time.time()
+            #    elapsed_time = start_time-end_time
+            #    print("Loader time"+str(elapsed_time))
 
             # Skip past any already trained steps if resuming training
             if steps_trained_in_current_epoch > 0:
                 steps_trained_in_current_epoch -= 1
                 continue
-            
-            # Set our model to training mode (as opposed to evaluation mode)
-            model = model.train()
 
             tweet_batch.discretize_batch(batch, step+1, n_batch)
             n_batch += 1
@@ -564,6 +570,11 @@ def main():
                         logger.info("Weight W: "+str(not torch.equal(a.data, b.data)))  
                         logger.info("Bias b: " + str(not torch.equal(a2.data, b2.data)))
 
+            #end_time = time.time()
+            #if step!=0:   
+            #    elapsed_time = end_time-start_time
+            #    print("Loop time" + str(elapsed_time))
+
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
@@ -583,5 +594,6 @@ def main():
     plt.show()
 
 if __name__ == '__main__':
-    main()
+    #main()
+    cProfile.run('main()', 'profiling_stats.txt')
     

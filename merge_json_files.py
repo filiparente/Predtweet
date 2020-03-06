@@ -46,8 +46,8 @@ class MyDataset2(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
+        #if torch.is_tensor(idx):
+        #    idx = idx.tolist()
         
         timestamp = list(map(int, self.data.keys()))[idx]
         input_ids = np.array(self.data[str(timestamp)][0], dtype=int)
@@ -164,7 +164,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
     # with an iterator the entire dataset does not need to be loaded into memory
-    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size)
+    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=8)
     dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size)
     test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size)
 
