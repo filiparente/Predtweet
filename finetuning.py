@@ -22,6 +22,7 @@ import logging
 import random
 from sklearn.metrics import mean_squared_error
 import cProfile
+import pdb
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -306,7 +307,7 @@ def main():
     parser.add_argument('--dataset_path', default='bitcoin_data', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument("--save_steps", type=int, default=300, help="Save checkpoint every X updates steps.") 
+    parser.add_argument("--save_steps", type=int, default=1, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
@@ -512,6 +513,7 @@ def main():
                 nb_tr_steps += 1
 
                 print("Train loss: {}".format(tr_loss/nb_tr_steps))
+                pdb.set_trace()
 
                 if (step + 1) % args.gradient_accumulation_steps == 0:
 
