@@ -500,9 +500,10 @@ def main():
                     loss = loss.mean()  # mean() to average on multi-gpu parallel training
                 if args.gradient_accumulation_steps > 1:
                     loss = loss / args.gradient_accumulation_steps
-
-                a = list(model.parameters())[199].clone()
-                a2 = list(model.parameters())[200].clone()
+               
+                if global_step%99 == 0 and (step+1)%args.gradient_accumulation_steps==0:
+                    a = list(model.parameters())[199].clone()
+                    a2 = list(model.parameters())[200].clone()
 
                 # Backward pass
                 loss.backward()
@@ -515,11 +516,6 @@ def main():
                 nb_tr_examples += len(X) #b_input.size(0)
                 nb_tr_steps += 1
 
-                print("Train loss: {}".format(tr_loss/nb_tr_steps))
-                
-                if global_step%15==0:
-                    pdb.set_trace()
-
                 if (step + 1) % args.gradient_accumulation_steps == 0:
 
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
@@ -529,9 +525,10 @@ def main():
                     scheduler.step() #update learning rate schedule
                     model.zero_grad()
                     global_step += 1
-                    print(global_step)
+                    #print(global_step)
                     
                     if args.logging_steps>0 and global_step%args.logging_steps==0:
+                        print("Train loss : {}".format(tr_loss/nb_tr_steps))
                         logs={}
 
                         if args.evaluate_during_training: 
@@ -569,14 +566,14 @@ def main():
                         logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
 
-                    b = list(model.parameters())[199].clone()
-                    b2 = list(model.parameters())[200].clone()
-                
                     # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-                    if step%args.logging_steps==0:
-                        logger.info("Check if the classifier layer weights are being updated:")
-                        logger.info("Weight W: "+str(not torch.equal(a.data, b.data)))  
-                        logger.info("Bias b: " + str(not torch.equal(a2.data, b2.data)))
+                    if global_step%100==0:#step%args.logging_steps==0:
+                        b = list(model.parameters())[199].clone()
+                        b2 = list(model.parameters())[200].clone()
+
+                        print("Check if the classifier layer weights are being updated:") #logger.info
+                        print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
+                        print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
 
             #end_time = time.time()
             #if step!=0:   
@@ -602,6 +599,4 @@ def main():
     plt.show()
 
 if __name__ == '__main__':
-    #main()
-    cProfile.run('main()', 'profiling_stats.txt')
-    
+    main()

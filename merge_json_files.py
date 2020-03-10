@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler
 import numpy as np
 import itertools
 import math
-from torch.nn.utils.rnn import pad_sequence
+import pdb
 
 MAX_LEN = 512
 
@@ -182,19 +182,27 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
     result = glob.glob('*.{}'.format(extension))
     result = [file_ for file_ in result if re.match(r'ids_chunk[0-9]+',file_)] 
     result.sort(key=sortKeyFunc)
-    result=result[0:5]
+    result=[result[0]]
+
+
     print("Files of chunks being analyzed: " + str(result))
+    pdb.set_trace()
 
-    list_of_datasets = []
-    for f in result:
-        list_of_datasets.append(MyDataset(f))
+    if len(result)>1:
+        list_of_datasets = []
+        for f in result:
+            list_of_datasets.append(MyDataset(f))
 
-    # once all single json datasets are created you can concat them into a single one:
-    multiple_json_dataset = data.ConcatDataset(list_of_datasets)
+        # once all single json datasets are created you can concat them into a single one:
+        multiple_json_dataset = data.ConcatDataset(list_of_datasets)
+        length = multiple_json_dataset.cummulative_sizes[-1]
+    
+    else:
+        dataset = MyDataset(result[0])
+        length = len(dataset)
 
     # Use train_test_split to split our data into train and validation sets for training
     percentages = [0.8, 0.1, 0.1]
-    length = multiple_json_dataset.cummulative_sizes[-1]
     lengths = [int(math.ceil(length*p)) for p in percentages]
 
     diff = int(sum(lengths)-length)
@@ -204,17 +212,21 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
             lengths[i] = lengths[i]-1
             diff-=1
             if diff==0:
-                break
+               break
 
     skip = round(window_size*discretization_unit*approx)
-
-    train_dataset, dev_dataset, test_dataset = random_split_ConcatDataset(multiple_json_dataset, lengths, skip)
-
+    
+    if len(result)>1:
+        train_dataset, dev_dataset, test_dataset = random_split_ConcatDataset(multiple_json_dataset, lengths, skip)
+    else:
+        train_dataset = MyDataset2({key: dataset.data[key] for key in list(dataset.data.keys())[:lengths[0]]})
+        dev_dataset = MyDataset2({key: dataset.data[key] for key in list(dataset.data.keys())[lengths[0]+1:lengths[0]+1+lengths[1]]})
+        test_dataset = MyDataset2({key: dataset.data[key] for key in list(dataset.data.keys())[lengths[0]+lengths[1]+2:]}) 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
     # with an iterator the entire dataset does not need to be loaded into memory
-    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=1, collate_fn=collate_fn)
-    dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size)
-    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size)
+    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
+    dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
+    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
 
     #torch.save(train_dataloader, 'train_dataloader.pth')
     #torch.save(dev_dataloader, 'dev_dataloader.pth')
