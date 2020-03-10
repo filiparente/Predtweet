@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler
 import numpy as np
 import itertools
 import math
+from torch.nn.utils.rnn import pad_sequence
 
 MAX_LEN = 512
 
@@ -53,15 +54,62 @@ class MyDataset2(Dataset):
         input_ids = np.array(self.data[str(timestamp)][0], dtype=int)
 
         # Pad to the max length so that all samples have the same dimension
-        input_ids = np.concatenate((input_ids, np.zeros(MAX_LEN-len(input_ids), dtype=int)), axis=None)
+        #input_ids = np.concatenate((input_ids, np.zeros(MAX_LEN-len(input_ids), dtype=int)), axis=None)
 
         # Create a mask of 1s for each token followed by 0s for padding
         #seq_mask = [float(i>0) for i in input_ids]
 
         #sample = {'timestamp': timestamp, 'input_ids': input_ids, 'attention_mask': seq_mask}
-        sample = {'timestamp': timestamp, 'input_ids': input_ids}
+        #sample = {'timestamp': timestamp, 'input_ids': input_ids}
 
-        return sample
+        #return sample
+        return (timestamp, input_ids)
+def pad_and_sort_batch(data_loader_batch):
+    """
+    data_loader_batch should be a list of (sequence, target, length) tuples...
+    Returns a padded tensor of sequences sorted from longest to shortest,
+    """
+    tokens, tags, lengths = tuple(zip(*data_loader_batch))
+    x = pad_sequence(tokens, batch_first=True, padding_value=0)
+    y = pad_sequence(tags, batch_first=True, padding_value=0)
+    lengths, perm_idx = torch.IntTensor(lengths).sort(0, descending=True)
+    return x[perm_idx, ...], y[perm_idx, ...], lengths
+
+def collate_fn_padd(batch):
+    '''
+    batch is a list of (sequence, target, length) tuples
+    Padds batch of variable length and returns a tensor of sequences padded to the maximum length
+
+    note: it converts things ToTensor manually here since the ToTensor transform
+    assume it takes in images rather than arbitrary tensors.
+    '''
+    ## get sequence lengths
+    lengths = torch.tensor([ t.shape[0] for t in batch ]).to(device)
+    ## padd
+    batch = [ torch.Tensor(t).to(device) for t in batch ]
+    batch = torch.nn.utils.rnn.pad_sequence(batch)
+    ## compute mask
+    mask = (batch != 0).to(device)
+    return batch, lengths, mask
+
+def collate_fn(data):
+    """
+       data: is a list of tuples with (example, label, length)
+             where 'example' is a tensor of arbitrary shape
+             and label/length are scalars
+    """
+    #_, labels, lengths = zip(*data)
+    timestamps, list_input_ids = zip(*data)
+    n_examples = len(data)
+    #lengths = [len(input_ids) for input_ids in list_input_ids]
+    max_len = MAX_LEN #max(lengths)
+    features = torch.zeros((n_examples, max_len), dtype=int)
+    #lengths = torch.tensor(lengths)
+
+    for i in range(n_examples):
+        features[i] = torch.cat([torch.tensor(list_input_ids[i]), torch.IntTensor(max_len-len(list_input_ids[i])).zero_()])
+
+    return timestamps, features #.float(),lengths.long()
 
 def random_split_ConcatDataset(ds, lengths, skip):
     """
@@ -134,7 +182,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
     result = glob.glob('*.{}'.format(extension))
     result = [file_ for file_ in result if re.match(r'ids_chunk[0-9]+',file_)] 
     result.sort(key=sortKeyFunc)
-    #result=result[0:5]
+    result=result[0:5]
     print("Files of chunks being analyzed: " + str(result))
 
     list_of_datasets = []
@@ -164,7 +212,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
     # with an iterator the entire dataset does not need to be loaded into memory
-    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=1)
+    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=1, collate_fn=collate_fn)
     dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size)
     test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size)
 

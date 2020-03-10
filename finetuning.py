@@ -50,8 +50,9 @@ class TweetBatch():
         self.counts = 0
 
     def discretize_batch(self, batch, step, n_batch):
+        #batch is a tuple (timestamps, list_input_ids, lengths)
         #Get timestamps
-        timestamps_ = batch['timestamp']
+        timestamps_ = torch.tensor(batch[0]) #batch['timestamp']
 
         timestamps = pd.to_datetime(timestamps_)
 
@@ -73,7 +74,7 @@ class TweetBatch():
             self.counts += sum(mask)
 
             try:
-                aux = batch['input_ids'][mask]
+                aux = batch[1][mask] #batch['input_ids'][mask]
             except:
                 print("error")
 
@@ -87,7 +88,7 @@ class TweetBatch():
             
             #if the last index is the date at the end of the batch, we need to open the next batch in order to
             #check if there are more input ids to store in the corresponding window
-            if batch['timestamp'][mask][-1] == end_date:
+            if timestamps_[mask][-1] == end_date:#batch['timestamp'][mask][-1] == end_date:
                 self.store_embs = avg_emb
                 break
 
@@ -352,7 +353,8 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    torch.save(test_dataloader, args.output_dir+'/test_dataloader.pth')
+    if not os.path.isfile(args.output_dir+"/test_dataloader.pth"):
+        torch.save(test_dataloader, args.output_dir+'/test_dataloader.pth')
 
     num_train_examples = int(1653*0.8)
 
