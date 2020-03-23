@@ -8,9 +8,142 @@ from datetime import timedelta
 import numpy as np
 import re
 from pathlib import Path
+from scipy.io import savemat
 
 #current path
 cpath = Path.cwd()
+
+class TweetBatch():
+    def __init__(self, discretization_unit, window_size):
+        dataset = {}
+        dataset['disc_unit'] = discretization_unit
+        dataset['window_size'] = window_size
+        dataset['embeds'] = []
+
+        self.delta = timedelta(hours=discretization_unit)
+        self.dataset = dataset
+        self.window_n = 1
+        self.prev_date = None
+        self.next_date = None
+        self.store_embs = np.array([])
+        self.counts = 0
+        self.X = []
+        self.y = []
+        self.n_ex = 0
+
+    def store(self, avg_emb):
+        self.dataset['embeds'].append({
+            'id': self.window_n,
+            'start_date': self.prev_date,
+            'avg_emb': avg_emb,
+            'count': self.counts,
+        })
+        self.window_n += 1
+
+        self.store_embs = np.array([])
+        self.counts = 0
+
+        self.prev_date = self.next_date
+        self.next_date = self.prev_date+self.delta
+
+    def discretize_batch(self, timestamps_, data, step, n_file):
+        #with open('dataset.mat', 'wb') as f:
+        timestamps = pd.to_datetime(timestamps_)
+
+        if n_file == 1:
+            self.prev_date = timestamps[0]
+            self.next_date = self.prev_date+self.delta 
+            self.store_embs = np.array([])            
+
+        end_date = timestamps[-1]
+
+        while(1):            
+            indexes = timestamps[np.logical_and(timestamps>=self.prev_date, timestamps<self.next_date)]
+
+            if len(indexes)==0:
+                self.store(self.store_embs)
+                self.n_ex += 1
+                if self.n_ex == self.dataset['window_size']+1:
+                    tfidf, count = self.sliding_window()
+                    self.X = np.vstack([self.X, tfidf])
+                    self.y.append(count)
+                    self.n_ex -= 1
+                continue
+
+            self.counts += len(indexes)
+            nanoseconds = [str(int(round(index.timestamp()*1000000000))) for index in indexes]
+
+            try:
+                aux = np.average([data[idx] for idx in nanoseconds if len(data[idx])==768], axis=0)
+            except:
+                print("error")
+
+            if self.store_embs.size:
+                try:
+                    avg_emb = np.average(np.vstack([self.store_embs, aux]), axis=0)
+                except:
+                    print("error")
+            else:
+                avg_emb = aux
+            
+            #if the last index is the date at the end of the json file, we need to open the next json file in order to
+            #check if there are more embbedings to average in the corresponding window
+            if indexes[-1] == end_date:
+                self.store_embs = avg_emb
+                #j.close()
+                break
+
+            self.store(avg_emb)
+            self.n_ex += 1
+
+            if self.n_ex == self.dataset['window_size']+1:
+                tfidf, count = self.sliding_window()
+                if len(self.y)==0:
+                    self.X = tfidf
+                else:
+                    self.X = np.vstack([self.X, tfidf])
+                self.y.append(count)
+                self.n_ex -= 1
+                
+            #savemat(f, {'X': X, 'y': y})
+
+    def sliding_window(self):
+        #For each individual timestamp
+        window_size = self.dataset['window_size']
+        length = len(self.dataset['embeds'])
+
+        if window_size >= length:
+            return np.array([]), np.array([])
+        else:
+            #Calculates the timedifference
+            timedif = [i for i in range(window_size)] 
+
+            #Calculate the weights using K = 0.5 (giving 50% of importance to the most recent timestamp)
+            #and tau = 6.25s so that when the temporal difference is 10s, the importance is +- 10.1%
+            wi = weights(0.5, 2, timedif)
+                                            
+            idx = window_size
+
+            while idx < length:
+                start = self.dataset['embeds'][idx]
+        
+                X = np.zeros(np.shape(self.dataset['embeds'][0]['avg_emb']))
+                for i in range(1,1+window_size):
+                     X += wi[i-1]*self.dataset['embeds'][idx-i]['avg_emb']
+
+                idx += 1
+            
+            if all(np.squeeze(X)==X):
+                skip = 1
+            else:
+                skip = np.shape(X)[0]
+
+            self.dataset['embeds'] = self.dataset['embeds'][skip:] #len(X):
+
+            X = np.squeeze(X)
+            y = int(start['count'])
+
+            return X,y
 
 '''This function receives the time difference vector and calculates the weight for each timestamp,
 depending on the temporal distance to the most recent timestamp. It uses an exponential function.
@@ -82,7 +215,7 @@ def get_datasets(path, window_size, disc_unit):
     #    delta = timedelta(days=1)
     #elif disc_unit == 'week':
     #    delta = timedelta(weeks=1)
-    delta = timedelta(hours=disc_unit)
+    #delta = timedelta(hours=disc_unit)
 
     # READ DATA
     # Find all json files in the bitcoin_data folder
@@ -95,16 +228,17 @@ def get_datasets(path, window_size, disc_unit):
 
     dataset = {}
     dataset2 = {}
-    dataset['disc_unit'] = disc_unit
-    dataset['window_size'] = window_size
-    dataset['embeddings'] = []
+    dataset2['disc_unit'] = disc_unit
+    dataset2['window_size'] = window_size
+    dataset2['embeddings'] = []
 
     if not result:
         print("No json files in the bitcoin_data folder!")
     else:
         n_file = 0
-        window_n = 1
-        counts = 0
+
+        tweet_batch = TweetBatch(disc_unit, window_size)
+
 
         for json_file in result:
             print("Loading json "+json_file)
@@ -117,113 +251,22 @@ def get_datasets(path, window_size, disc_unit):
                 n_file += 1
                 
                 timestamps_ = list(map(int, data.keys()))
-                timestamps = pd.to_datetime(timestamps_)
-
                 if n_file == 1:
-                    prev_date = timestamps[0]
-                    next_date = prev_date+delta 
-                    store_embs = np.array([])
                     dataset2['start_date'] = timestamps_[0]
-               
-
-                end_date = timestamps[-1]
-                if n_file == len(result): #last file
+                elif n_file == len(result): #last file
                     dataset2['end_date'] = timestamps_[-1]
+              
+                tweet_batch.discretize_batch(timestamps_, data, 1, n_file)
 
-                while(1):
-                
-                    indexes = timestamps[np.logical_and(timestamps>=prev_date, timestamps<next_date)]
+        for i in range(len(tweet_batch.y)):
+            dataset2['embeddings'].append({'X': list(tweet_batch.X[i,:]), 'y': tweet_batch.y[i]}) #ndarray is not json serializable, must be converted to list beforehand
 
-                    if len(indexes)==0:
-                        dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, store_embs, counts, store_embs)
-                        continue
+        dataset = tweet_batch.dataset
 
-                    counts += len(indexes)
-                    nanoseconds = [str(int(round(index.timestamp()*1000000000))) for index in indexes]
-
-                    try:
-                        aux = np.average([data[idx] for idx in nanoseconds if len(data[idx])==768], axis=0)
-                    except:
-                        print("error")
-
-                    if store_embs.size:
-                        try:
-                            avg_emb = np.average(np.vstack([store_embs, aux]), axis=0)
-                        except:
-                            print("error")
-                    else:
-                        avg_emb = aux
-                    
-                    #if the last index is the date at the end of the json file, we need to open the next json file in order to
-                    #check if there are more embbedings to average in the corresponding window
-                    if indexes[-1] == end_date:
-                        store_embs = avg_emb
-                        j.close()
-                        break
-
-                    dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
-
-    if store_embs.size:
-        dataset['embeddings'].append({
-            'id': window_n,
-            'start_date': prev_date,
-            'avg_emb': avg_emb,
-            'count': counts,
-        })          
-
-
-    #For each individual timestamp
-    if window_size>len(dataset['embeddings']):
-        print("ERROR. WINDOW_SIZE IS TOO BIG!")
-    else:
-        #Calculates the timedifference
-        timedif = [i for i in range(window_size)]
-                            
-       
-        dataset2['disc_unit'] = disc_unit
-        dataset2['window_size'] = window_size
-        dataset2['embeddings'] = []
-        #Calculate the weights using K = 0.5 (giving 50% of importance to the most recent timestamp)
-        #and tau = 6.25s so that when the temporal difference is 10s, the importance is +- 10.1%
-        wi = weights(0.5, 2, timedif)
-
-        idx = window_size
-
-        while idx < len(dataset['embeddings']):
-            start = dataset['embeddings'][idx]
-            
-            X = np.zeros(np.shape(avg_emb))
-            for i in range(1,1+window_size):
-                X += wi[i-1]*dataset['embeddings'][idx-i]['avg_emb']
-
-            dataset2['embeddings'].append({
-                'X': X.tolist(),
-                'y': start['count'],
-            })
-            idx += 1
-
-        print("Done!")
-
-    return dataset, dataset2
-
-def store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs):
-    dataset['embeddings'].append({
-        'id': window_n,
-        'start_date': prev_date,
-        'avg_emb': avg_emb,
-        'count': counts,
-    })
-    window_n += 1
-
-    store_embs = np.array([])
-    counts = 0
-
-    prev_date = next_date
-    next_date = prev_date+delta
-
-    return dataset, window_n, store_embs, counts, prev_date, next_date
-
-def save_dataset(base_path, dataset, dt, dw):
+        return dataset, dataset2, tweet_batch.X, tweet_batch.y         
+               
+    
+def save_dataset(base_path, dataset, X, y, dt, dw):
     #Creates folders in format dt.dw and dumps there the dataset.txt json file for each combination dt, dw
     #The folders are put inside the base_path provided by the user
 
@@ -233,24 +276,33 @@ def save_dataset(base_path, dataset, dt, dw):
     #os.makedirs(os.path.dirname(path), exist_ok=True)
     path = "{}{}{}{}{}".format(base_path,'\\', dt, ".", dw)
     os.makedirs(path, exist_ok=True)
-    with open(path + r'\dataset.txt', "w") as f:
+
+    #Save txt file in old format
+    with open(path + r'\new_dataset.txt', "w") as f:
         json.dump(dataset, f)
         f.close()
 
+    #Save matlab file 
+    with open(path + r'\dataset.mat', 'wb') as f:
+        savemat(f, {'start_date': dataset['start_date'], 'end_date': dataset['end_date'], 'disc_unit': dt, 'window_size': dw, 'X': X, 'y': y})
+        f.close()
+
     
-def main(window_size=5, disc_unit=1, embbedings_path="bitcoin_data/", out_path="results/"):
+
+    
+def main(window_size=3, disc_unit=1, embbedings_path="bitcoin_data/", out_path="results/"):
     embeddings_path = cpath.joinpath(embbedings_path)
 
     #dataset1 contains the embbedings within each discretization unit (since the start date) and the corresponding counts
     #dataset2 contains the weighted average of the window of previous embeddings, and the count for each discretization unit
     #The unit of discretization (minute, hour, day, week...) is chosen by the user
     #The length of the window is also chosen by the user, and it represents the number of previous embeddings to take into account
-    dataset1, dataset2 = get_datasets(embeddings_path, window_size, disc_unit)
+    dataset1, dataset2, X, y = get_datasets(embeddings_path, window_size, disc_unit)
 
     if 'embeddings' in dataset2.keys(): #dt.dw combination out of range, cannot compute embeddings
         print("Dimension of the dataset: \n \t Nº of pairs (features/embbedings, labels/counts) = (X,y) = " + str(len(dataset2['embeddings'])))
         out_path = cpath.joinpath(out_path+'\\')
-        save_dataset(out_path, dataset2, disc_unit, window_size)
+        save_dataset(out_path, dataset2, X, y,  disc_unit, window_size)
     else:
         print("Not done!")
 
@@ -258,7 +310,7 @@ def main(window_size=5, disc_unit=1, embbedings_path="bitcoin_data/", out_path="
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create a dataset from the sentence embbedings and timestamps.')
     
-    parser.add_argument('--window_size', type = int, default=5, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
+    parser.add_argument('--window_size', type = int, default=3, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
     parser.add_argument('--discretization_unit', type=int, default=1, help="Unit of time to discretize the time series data, as a string. Valid options are: 'min', 'hour', 'day', 'week'.")
     parser.add_argument('--embeddings_path', default='bitcoin_data/', help="OS path to the folder where the json files with the tweets embeddings are located.")
     parser.add_argument('--out_path', default='results/', help="OS path to the folder where the dataset must be saved.")

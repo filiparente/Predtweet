@@ -11,6 +11,8 @@ __author__="brendan o'connor (anyall.org)"
 
 import re,sys
 from . import emoticons
+import nltk
+from nltk.corpus import stopwords
 mycompile = lambda pat:  re.compile(pat,  re.UNICODE)
 def regex_or(*items):
   r = '|'.join(items)
@@ -168,7 +170,7 @@ def replace_hyperlinks(text):
     return cleaned_text
  
   
-def get_cleaned_text(text, remove_retweets=True):
+def get_cleaned_text(text, remove_retweets=True, remove_stopwords=True, stopwords_file = 'NLTK_DEFAULT'):
     """
     return cleaned text(string) for provided tweet text(string)
     """
@@ -195,10 +197,21 @@ def get_cleaned_text(text, remove_retweets=True):
         break
     
     cleaned_text = cleaned_text.replace('# ','HASHTAG ').replace('@ ','AT ') # to avoid being removed while removing punctuations
-    
+    if remove_stopwords:
+      if stopwords_file == 'NLTK_DEFAULT':
+          stop_words = set(stopwords.words('english'))
+      else:
+          stop_words = set()
+          with open(stopwords_file,'r') as f:
+              for line in f:
+                  line = line.replace('\n','')
+                  stop_words.add(line.lower())
+              stop_words = stop_words
+    else:
+        stop_words = set()
     #tokens = [w.translate(self.punc_table) for w in word_tokenize(cleaned_text)] # remove punctuations and tokenize
-    #tokens = [w for w in tokens if not w.lower() in self.stop_words and len(w)>1] # remove stopwords and single length words
-    #cleaned_text = ' '.join(tokens)
+    tokens = [w for w in cleaned_text.split(' ') if not w.lower() in stop_words and len(w)>1] # remove stopwords and single length words
+    cleaned_text = ' '.join(tokens)
     
     #cleaned_text = cleaned_text.replace('HASHTAGSYMBOL','#').replace('ATSYMBOL','@')
     cleaned_text = retweet_info + cleaned_text
