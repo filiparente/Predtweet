@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from pytorch_pretrained_bert import BertAdam
 from sentence_transformers import SentenceTransformer
 from merge_json_files import load_inputids
-from datetime import timedelta
+from datetime import timedelta, datetime
 import time
 import pandas as pd
 from transformers import AdamW,  get_linear_schedule_with_warmup
@@ -48,6 +48,7 @@ class TweetBatch():
         self.next_date = None
         self.store_embs = np.array([])
         self.counts = 0
+        self.start_date = None
 
     def discretize_batch(self, batch, step, n_batch):
         #batch is a tuple (timestamps, list_input_ids, lengths)
@@ -55,7 +56,7 @@ class TweetBatch():
         timestamps_ = torch.tensor(batch[0]) #batch['timestamp']
 
         timestamps = pd.to_datetime(timestamps_)
-
+        self.start_date = timestamps[0]
         if n_batch == 1:
             self.prev_date = timestamps[0]
             self.next_date = self.prev_date+self.delta 
@@ -120,7 +121,7 @@ class TweetBatch():
         length = len(self.dataset['input_ids'])
 
         if window_size >= length:
-            logger.info("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
+            #print("ERROR. WINDOW_SIZE IS TOO BIG! Loading next tweet batch...")
             return np.array([]), np.array([])
         else:                                                 
             idx = window_size
@@ -245,10 +246,10 @@ def evaluate(args, model, eval_dataloader, wi, device, prefix=""):
         os.makedirs(eval_output_dir)
     
     # Eval!
-    logger.info("***** Running evaluation {} *****".format(prefix))
+    print("***** Running evaluation {} *****".format(prefix))
     num_eval_examples = int(1653*0.2)
-    logger.info("  Num examples = %d", num_eval_examples)
-    logger.info("  Batch size = %d", 8)
+    print("  Num examples = %d", num_eval_examples)
+    print("  Batch size = %d", 8)
 
     eval_loss = 0.0
     nb_eval_steps = 0
@@ -272,10 +273,11 @@ def evaluate(args, model, eval_dataloader, wi, device, prefix=""):
         # Forward pass
         if len(X)>=1: #the batch must contain, at least, one example, otherwise don't do forward  
             with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
-                outputs = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=args.window_size)   
+                outputs,_,_ = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=args.window_size)   
 
-                tmp_eval_loss, logits = outputs[:2]
-
+                tmp_eval_loss, logits = outputs
+                print("Logits " + str(logits))
+                print("Counts " + str(y))
                 eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
 
@@ -291,14 +293,14 @@ def evaluate(args, model, eval_dataloader, wi, device, prefix=""):
     preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
     
     #since we are doing regression, our metric will be the mse
-    result = mean_squared_error(preds, out_label_ids) #compute_metrics(eval_task, preds, out_label_ids)
+    result = {"mse":mean_squared_error(preds, out_label_ids)} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
 
     output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
     with open(output_eval_file, "w") as writer:
-        logger.info("***** Eval results {} *****".format(prefix))
+        print("***** Eval results {} *****".format(prefix))
         for key in sorted(result.keys()):
-            logger.info("  %s = %s", key, str(result[key]))
+            print("  %s = %s", key, str(result[key]))
             writer.write("%s = %s\n" % (key, str(result[key])))
 
     return results
@@ -343,7 +345,7 @@ def main():
     # Approximation of batch_size
     # Select a batch size for training. For fine-tuning BERT on a specific task, the authors recommend a batch size of 16 or 32, which represent 32 sample points (features, embbedings) after preprocessing is done
     batch_size_ = 1#32 
-    approx = 10 #~ number of tweets in one hour
+    approx = 300 #~ number of tweets in one hour
     batch_size = round(batch_size_+window_size*discretization_unit*approx-1)
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
@@ -356,7 +358,7 @@ def main():
     if not os.path.isfile(args.output_dir+"/test_dataloader.pth"):
         torch.save(test_dataloader, args.output_dir+'/test_dataloader.pth')
 
-    num_train_examples = int(1653*0.8)
+    num_train_examples = 202#int(1653*0.8)
 
     #batch_size = 5 #approximate
 
@@ -367,7 +369,7 @@ def main():
     epochs = args.num_train_epochs
 
     # Load BertForSequenceClassification, the pretrained BERT model with a single linear classification layer on top. 
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=1)
+    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=1, hidden_dropout_prob=0.0)
 
     # If there's a GPU available...
     if torch.cuda.is_available():    
@@ -388,7 +390,7 @@ def main():
         print('No GPU available, using the CPU instead.')
         device = torch.device("cpu")
 
-    num_train_optimization_steps = int(num_train_examples/batch_size/gradient_accumulation_steps)*epochs
+    num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
     warmup_steps = args.warmup_proportion*num_train_optimization_steps
 
@@ -407,7 +409,7 @@ def main():
     #                    warmup=.1, #warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%"
     #                    t_total=num_train_optimization_steps)
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon) 
+    optimizer = AdamW(optimizer_grouped_parameters)# AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon) 
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=warmup_steps, num_training_steps=num_train_optimization_steps
     )
@@ -421,11 +423,11 @@ def main():
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
     # Train!
-    logger.info("***** Running training *****")
-    logger.info("  Num examples = %d", num_train_examples)
-    logger.info("  Num Epochs = %d", epochs)
-    logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
-    logger.info("  Total optimization steps = %d", num_train_optimization_steps)
+    print("***** Running training *****")
+    print("  Num examples = %d", num_train_examples)
+    print("  Num Epochs = %d", epochs)
+    print("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+    print("  Total optimization steps = %d", num_train_optimization_steps)
 
     # Store our loss and accuracy for plotting
     train_loss_set = []
@@ -441,10 +443,10 @@ def main():
         epochs_trained = global_step // (num_train_examples // gradient_accumulation_steps)
         steps_trained_in_current_epoch = global_step % (num_train_examples // gradient_accumulation_steps)
 
-        logger.info("  Continuing training from checkpoint, will skip to saved global_step")
-        logger.info("  Continuing training from epoch %d", epochs_trained)
-        logger.info("  Continuing training from global step %d", global_step)
-        logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
+        print("  Continuing training from checkpoint, will skip to saved global_step")
+        print("  Continuing training from epoch %d", epochs_trained)
+        print("  Continuing training from global step %d", global_step)
+        print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
 
     tr_loss, logging_loss = 0.0, 0.0
 
@@ -456,6 +458,7 @@ def main():
     )
 
     set_seed(args, n_gpu)  # Added here for reproductibility
+    cutoff_date = datetime.strptime('05/10/2019 11:00:00', '%m/%d/%Y %H:%M:%S')
     
     #Training
     for _ in train_iterator:
@@ -470,7 +473,7 @@ def main():
         
         # Set our model to training mode (as opposed to evaluation mode)
         model = model.train()
-
+        prev_embeds = []
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
             #if step!=0:
@@ -484,97 +487,117 @@ def main():
                 continue
 
             tweet_batch.discretize_batch(batch, step+1, n_batch)
+            if tweet_batch.start_date < cutoff_date:
+                continue
+ 
             n_batch += 1
 
-            X, y = tweet_batch.sliding_window(wi, device, global_step)
+            X, y = tweet_batch.sliding_window(wi, device, step+1)
 
             # Clear out the gradients (by default they accumulate)
             #optimizer.zero_grad() #DUVIDA: ISTO E PARA TIRAR?
-
+            
             # Forward pass
-            if len(X)>=1: #the batch must contain, at least, one example, otherwise don't do forward
-                
-                loss, logits = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size)   
+            if len(X)>=1 and (y>300).all(): #the batch must contain, at least, one example, otherwise don't do forward
+                for i in range(2):
+                    print(tweet_batch.prev_date)
+                    print(tweet_batch.next_date)
+                    if i==0:
+                        outputs, embeds, input_ids_ = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size)
+                    elif i==1:
+                        outputs, embeds,_ = model(input_ids = X, labels=torch.tensor(y).to(device), weights=wi, window_size=window_size, inputs_embeds=input_ids_)   
+                    loss, logits = outputs
+                    embeds = embeds.detach().cpu().numpy()
+                    if i==0:
+                        embeds1 = embeds
+                    elif i==1:
+                        embeds2 = embeds
 
-                if n_gpu > 1:
-                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps
+                    if global_step>1 and nb_tr_examples!=0:
+                        print("Mse between embeddings in consecutive iterations: " + str(np.sum((prev_embeds-embeds)**2, axis=1)))
+                    prev_embeds = embeds
+                    if n_gpu > 1:
+                        loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                    if args.gradient_accumulation_steps > 1:
+                        loss = loss / args.gradient_accumulation_steps
                
-                if global_step%99 == 0 and (step+1)%args.gradient_accumulation_steps==0:
-                    a = list(model.parameters())[199].clone()
-                    a2 = list(model.parameters())[200].clone()
+                    if global_step%99 == 0 and (step+1)%args.gradient_accumulation_steps==0:
+                        a = list(model.parameters())[199].clone()
+                        a2 = list(model.parameters())[200].clone()
 
-                # Backward pass
-                loss.backward()
+                    # Backward pass
+                    loss.backward()
 
-                #Store 
-                train_loss_set.append(loss.item()) 
+                    #Store 
+                    train_loss_set.append(loss.item()) 
                 
-                # Update tracking variables
-                tr_loss += loss.item()
-                nb_tr_examples += len(X) #b_input.size(0)
-                nb_tr_steps += 1
+                    # Update tracking variables
+                    tr_loss += loss.item()
+                    nb_tr_examples += len(X) #b_input.size(0)
+                    nb_tr_steps += 1
 
-                if (step + 1) % args.gradient_accumulation_steps == 0:
+                    if (step + 1) % args.gradient_accumulation_steps == 0:
 
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                        #torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                
-                    # Update parameters and take a step using the computed gradient
-                    optimizer.step()
-                    scheduler.step() #update learning rate schedule
-                    model.zero_grad()
-                    global_step += 1
-                    #print(global_step)
+                        # Update parameters and take a step using the computed gradient
+                        optimizer.step()
+                        scheduler.step() #update learning rate schedule
+                        model.zero_grad()
+                        global_step += 1
+                        print("Global step nº: " + str(global_step))
                     
-                    if args.logging_steps>0 and global_step%args.logging_steps==0:
-                        print("Train loss : {}".format(tr_loss/nb_tr_steps))
-                        logs={}
+                        if args.logging_steps>0 and global_step%args.logging_steps==0:
+                            print("Train loss : {}".format(tr_loss/nb_tr_steps))
+                            logs={}
 
-                        if args.evaluate_during_training: 
-                            results = evaluate(args, model, dev_dataloader, wi, device)
-                            for key, value in results.items():
-                                eval_key = "eval_{}".format(key)
-                                logs[eval_key] = value
+                            if args.evaluate_during_training: 
+                                results = evaluate(args, model, dev_dataloader, wi, device)
+                                for key, value in results.items():
+                                    eval_key = "eval_{}".format(key)
+                                    logs[eval_key] = value
 
-                        # DUVIDA: Pedir a zita para explicar isto
-                        loss_scalar = (tr_loss - logging_loss) / args.logging_steps
-                        learning_rate_scalar = scheduler.get_lr()[0]
-                        logs["learning_rate"] = learning_rate_scalar
-                        logs["loss"] = loss_scalar
-                        logging_loss = tr_loss
+                            # DUVIDA: Pedir a zita para explicar isto
+                            loss_scalar = (tr_loss - logging_loss) / args.logging_steps
+                            learning_rate_scalar = scheduler.get_last_lr()[0]
+                            logs["learning_rate"] = learning_rate_scalar
+                            logs["loss"] = loss_scalar
+                            logging_loss = tr_loss
 
-                        for key, value in logs.items():
-                            tb_writer.add_scalar(key, value, global_step)
-                        print(json.dumps({**logs, **{"step": global_step}}))
+                            for key, value in logs.items():
+                                tb_writer.add_scalar(key, value, global_step)
+                            print(json.dumps({**logs, **{"step": global_step}}))
 
-                    if args.save_steps>0 and global_step%args.save_steps==0:
-                        # Save model checkpoint
-                        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
-                        if not os.path.exists(output_dir):
-                            os.makedirs(output_dir)
-                        model_to_save = (
-                            model.module if hasattr(model, "module") else model
-                        )  # Take care of distributed/parallel training
-                        model_to_save.save_pretrained(output_dir)
+                        if args.save_steps>0 and global_step%args.save_steps==0:
+                            # Save model checkpoint
+                            output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+                            if not os.path.exists(output_dir):
+                                os.makedirs(output_dir)
+                            model_to_save = (
+                                model.module if hasattr(model, "module") else model
+                            )  # Take care of distributed/parallel training
+                            model_to_save.save_pretrained(output_dir)
 
-                        torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                        logger.info("Saving model checkpoint to %s", output_dir)
+                            torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                            print("Saving model checkpoint to %s", output_dir)
 
-                        torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                        torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                        logger.info("Saving optimizer and scheduler states to %s", output_dir)
+                            torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                            torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                            print("Saving optimizer and scheduler states to %s", output_dir)
 
 
-                    # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-                    if global_step%100==0:#step%args.logging_steps==0:
-                        b = list(model.parameters())[199].clone()
-                        b2 = list(model.parameters())[200].clone()
+                         
+                        # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
+                        if global_step%args.logging_steps==0:#step%args.logging_steps==0:
+                            b = list(model.parameters())[199].clone()
+                            b2 = list(model.parameters())[200].clone()
 
-                        print("Check if the classifier layer weights are being updated:") #logger.info
-                        print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
-                        print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
+                            print("Check if the classifier layer weights are being updated:") #logger.info
+                            print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
+                            print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
 
+            
+                print((embeds1==embeds2).all())   
             #end_time = time.time()
             #if step!=0:   
             #    elapsed_time = end_time-start_time

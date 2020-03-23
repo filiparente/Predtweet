@@ -103,11 +103,12 @@ def collate_fn(data):
     n_examples = len(data)
     #lengths = [len(input_ids) for input_ids in list_input_ids]
     max_len = MAX_LEN #max(lengths)
-    features = torch.zeros((n_examples, max_len), dtype=int)
+    features = torch.zeros((n_examples, max_len))
+    features = features.type(torch.LongTensor)
     #lengths = torch.tensor(lengths)
 
     for i in range(n_examples):
-        features[i] = torch.cat([torch.tensor(list_input_ids[i]), torch.IntTensor(max_len-len(list_input_ids[i])).zero_()])
+        features[i] = torch.cat([torch.tensor(list_input_ids[i]), torch.LongTensor(max_len-len(list_input_ids[i])).zero_()])
 
     return timestamps, features #.float(),lengths.long()
 
@@ -186,7 +187,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
 
 
     print("Files of chunks being analyzed: " + str(result))
-    pdb.set_trace()
+    
 
     if len(result)>1:
         list_of_datasets = []
@@ -226,7 +227,7 @@ def load_inputids(path = "bitcoin_data/", batch_size=1000, window_size=3, discre
     # with an iterator the entire dataset does not need to be loaded into memory
     train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
     dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
-    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size, num_workers=4, collate_fn=collate_fn)
+    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size, num_workers=2, collate_fn=collate_fn)
 
     #torch.save(train_dataloader, 'train_dataloader.pth')
     #torch.save(dev_dataloader, 'dev_dataloader.pth')
