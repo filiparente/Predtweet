@@ -1,2 +1,5 @@
 results
 runs
+*.mat
+*.csv
+bitcoin_data/finetuning_outputs/test_dataloader.pth

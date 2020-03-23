@@ -1,3 +1,4 @@
+finetuning_outputs/
 bitcoin_df.pkl
 bitcoin-tweets-20160101-to-20190329.zip
 sorted_filtered_tweets.csv
@@ -6,4 +7,5 @@ tweets.csv
 bitcoin_dataset.txt
 embbedings_chunk*.txt
 ids_chunk*.txt
-finetuning_outputs
+*.npz
+*.bin
