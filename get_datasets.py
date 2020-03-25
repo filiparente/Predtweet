@@ -6,14 +6,18 @@ import os
 import argparse
 
 parser = argparse.ArgumentParser(description='Create a dataset from the sentence embbedings and timestamps.')
-parser.add_argument('--embeddings_path', default='bitcoin_data/', help="OS path to the folder where the json files with the tweets embeddings are located.")
+parser.add_argument('--embeddings_path', default='bitcoin_data/embeddings_sentence_transformer/', help="OS path to the folder where the json files with the tweets embeddings are located.")
 parser.add_argument('--out_path', default='results/', help="OS path to the folder where the dataset must be saved.")
-
+parser.add_argument('--create_windows', action='store_true', help="If the user wants to create a dataset with windows or only to discretize the tweets into x hours.")
 args = parser.parse_args()
 print(args) 
 
 dt = [1,3,4,6,12,24,48]  #discretization unit in hours
-dw = [1,3,5,7] #length of the sliding window of previous features, in units of dt
+
+if args.create_windows:
+    dw = [1,3,5,7] #length of the sliding window of previous features, in units of dt
+else:
+    dw = [0]
 
 all_combs = list(itertools.product(dt, dw))
 
