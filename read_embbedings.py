@@ -32,6 +32,13 @@ class TweetBatch():
         self.n_ex = 0
 
     def store(self, avg_emb):
+        if self.dataset['window_size']==0:
+            if len(self.y)==0:
+                self.X = avg_emb
+            else:
+                self.X = np.vstack([self.X, avg_emb])
+            self.y.append(self.counts)
+
         self.dataset['embeds'].append({
             'id': self.window_n,
             'start_date': self.prev_date,
@@ -63,11 +70,12 @@ class TweetBatch():
             if len(indexes)==0:
                 self.store(self.store_embs)
                 self.n_ex += 1
-                if self.n_ex == self.dataset['window_size']+1:
+                if self.dataset['window_size']!=0 and self.n_ex == self.dataset['window_size']+1:
                     tfidf, count = self.sliding_window()
                     self.X = np.vstack([self.X, tfidf])
                     self.y.append(count)
                     self.n_ex -= 1
+
                 continue
 
             self.counts += len(indexes)
@@ -94,9 +102,10 @@ class TweetBatch():
                 break
 
             self.store(avg_emb)
+
             self.n_ex += 1
 
-            if self.n_ex == self.dataset['window_size']+1:
+            if self.dataset['window_size']!=0 and self.n_ex == self.dataset['window_size']+1:
                 tfidf, count = self.sliding_window()
                 if len(self.y)==0:
                     self.X = tfidf

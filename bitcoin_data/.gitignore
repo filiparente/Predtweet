@@ -1,4 +1,6 @@
 finetuning_outputs
+TF-IDF
+embeddings_sentence_transformer
 bitcoin_df.pkl
 bitcoin-tweets-20160101-to-20190329.zip
 sorted_filtered_tweets.csv

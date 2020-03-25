@@ -52,81 +52,84 @@ class TweetBatch():
         self.next_date = None
         self.store_embs = np.array([])
         self.counts = 0
+        self.X = []
+        self.y = []
+        self.n_ex = 0
 
     def discretize_batch(self, timestamps_, features, step, n_batch):
         #with open(r'tfidf_WindowDataset1_3(1).csv', 'a', newline='') as csvfile:
-        with open('temp2.mat','wb') as f:
-            #fieldnames = ['Features X','Counts y']
-            #fieldnames = ['Features '+ str(i) for i in range(features.shape[1])]
-            #fieldnames.append('Counts y')
-            #writer = csv.writer(csvfile, delimiter=",") #csv.DictWriter(csvfile, fieldnames=fieldnames)
-            #writer.writerow(fieldnames)
-            #Get timestamps
-            timestamps = pd.to_datetime(timestamps_)
+        #with open('temp2.mat','wb') as f:
+        #fieldnames = ['Features X','Counts y']
+        #fieldnames = ['Features '+ str(i) for i in range(features.shape[1])]
+        #fieldnames.append('Counts y')
+        #writer = csv.writer(csvfile, delimiter=",") #csv.DictWriter(csvfile, fieldnames=fieldnames)
+        #writer.writerow(fieldnames)
+        #Get timestamps
+        timestamps = pd.to_datetime(timestamps_)
 
-            if n_batch == 1:
-                self.prev_date = timestamps[0]
-                self.next_date = self.prev_date+self.delta 
-                self.store_embs = np.array([])
-            
-            end_date = timestamps_[-1]
-            n_ex = 0
-            X = []
-            y=[]
-            while(1):  
-                mask = np.logical_and(timestamps>=self.prev_date, timestamps<self.next_date)
+        if n_batch == 1:
+            self.prev_date = timestamps[0]
+            self.next_date = self.prev_date+self.delta 
+            self.store_embs = np.array([])
+        
+        end_date = timestamps_[-1]
+        #n_ex = 0
+        #X = []
+        #y=[]
+        while(1):  
+            mask = np.logical_and(timestamps>=self.prev_date, timestamps<self.next_date)
 
-                if not any(mask==True):
-                    #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, store_embs, counts, store_embs)
-                    self.store(self.store_embs)
-                    n_ex += 1
-                    if n_ex == self.dataset['window_size']+1:
-                        #self.sliding_window(writer)
-                        tfidf, count = self.sliding_window(f)
-                        X.append(tfidf)
-                        y.append(count)
-                        n_ex -= 1
-                    continue
+            if not any(mask==True):
+                #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, store_embs, counts, store_embs)
+                self.store(self.store_embs)
+                self.n_ex += 1
+                if self.n_ex == self.dataset['window_size']+1:
+                    #self.sliding_window(writer)
+                    tfidf, count = self.sliding_window()
+                    self.X.append(tfidf)
+                    self.y.append(count)
+                    self.n_ex -= 1
+                continue
 
-                self.counts += np.count_nonzero(mask)
+            self.counts += np.count_nonzero(mask)
 
+            try:
+                aux = features[mask,:].mean(axis=0) #before: .todense()
+            except:
+                print("error")
+
+            if self.store_embs.size:
                 try:
-                    aux = features[mask,:].mean(axis=0) #before: .todense()
+                    avg_emb = np.average(np.vstack([self.store_embs, aux]), axis=0)#torch.cat((self.store_embs, aux), 0)#np.concatenate(store_embs, aux)
                 except:
                     print("error")
+            else:
+                avg_emb = aux
+            
+            #if the last index is the date at the end of the batch, we need to open the next batch in order to
+            #check if there are more input ids to store in the corresponding window
+            if mask[-1] == True:#batch['timestamp'][mask][-1] == end_date:
+                assert np.array(timestamps_)[mask][-1]==end_date, "error"
+                self.store_embs = avg_emb
+                break
 
-                if self.store_embs.size:
-                    try:
-                        avg_emb = np.average(np.vstack([self.store_embs, aux]), axis=0)#torch.cat((self.store_embs, aux), 0)#np.concatenate(store_embs, aux)
-                    except:
-                        print("error")
+            #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
+            self.store(avg_emb)
+            self.n_ex += 1
+            if self.n_ex == self.dataset['window_size']+1:
+                #self.sliding_window(writer)
+                tfidf, count = self.sliding_window()
+                if len(self.y)==0:
+                    self.X = tfidf
                 else:
-                    avg_emb = aux
-                
-                #if the last index is the date at the end of the batch, we need to open the next batch in order to
-                #check if there are more input ids to store in the corresponding window
-                if mask[-1] == True:#batch['timestamp'][mask][-1] == end_date:
-                    assert np.array(timestamps_)[mask][-1]==end_date, "error"
-                    self.store_embs = avg_emb
-                    break
-
-                #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
-                self.store(avg_emb)
-                n_ex += 1
-                if n_ex == self.dataset['window_size']+1:
-                    #self.sliding_window(writer)
-                    tfidf, count = self.sliding_window(f)
-                    if len(y)==0:
-                        X = tfidf
-                    else:
-                        X = scipy.sparse.vstack([X, tfidf])
-                    y.append(count)
-                    n_ex -= 1
-                
-                if len(self.dataset['input_ids'])>self.dataset['window_size']+1:
-                    print("memory issue!")
-            #return dataset, window_n, prev_date, next_date, store_embs, counts
-            savemat(f, {'X': X, 'y': y})
+                    self.X = scipy.sparse.vstack([self.X, tfidf])
+                self.y.append(count)
+                self.n_ex -= 1
+            
+            if len(self.dataset['input_ids'])>self.dataset['window_size']+1:
+                print("memory issue!")
+        #return dataset, window_n, prev_date, next_date, store_embs, counts
+        #savemat(f, {'X': X, 'y': y})
 
         
     def store(self, avg_emb):
@@ -146,7 +149,7 @@ class TweetBatch():
 
         #return dataset, window_n, store_embs, counts, prev_date, next_date
 
-    def sliding_window(self, writer):
+    def sliding_window(self):
         #For each individual timestamp
         window_size = self.dataset['window_size']
         length = len(self.dataset['input_ids'])
@@ -212,6 +215,9 @@ def weights(k,tau,timedif):
 
 def ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, window_size, discretization_unit):
     #tweet_times = []
+    #train_tweet_times = []
+    #dev_tweet_times = []
+    #test_tweet_times = []
 
     for df_chunk in df:
         print("Processing chunk n " + str(n_chunks+1))
@@ -226,7 +232,7 @@ def ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_da
         #    print("OK")
         #else:
         #    print("NO") 
-    
+        
         #Each chunk is in df format
         if not df_chunk.empty:
         
@@ -257,14 +263,17 @@ def ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_da
                             #tweet_times.append(tweet_time.value)   
                             if tweet_time < train_split_date:  
                                 yield sentence,_,_
+                                #train_tweet_times.append(tweet_time.value)
                             elif tweet_time >= train_split_date+datetime.timedelta(hours=window_size*discretization_unit) and tweet_time < dev_split_date:
                                 yield _,sentence,_
+                                #dev_tweet_times.append(tweet_time.value)
                             elif tweet_time>= dev_split_date+datetime.timedelta(hours=window_size*discretization_unit):
                                 yield _,_,sentence
+                                #test_tweet_times.append(tweet_time.value)
                             
-    #return tweet_times, n_en_sent, n_tot_sent 
+        #return tweet_times, n_en_sent, n_tot_sent 
+        #return train_tweet_times, dev_tweet_times, test_tweet_times
           
-
 def get_cleaned_text(sentence):
     return " ".join(twokenize.tokenize(sentence))#.encode('utf-8')
 
@@ -316,7 +325,7 @@ def main():
     parser.add_argument('--csv_path', default='bitcoin_data/', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     args = parser.parse_args()
     print(args) 
 
@@ -374,7 +383,7 @@ def main():
 
                 
         #Read start date and end date
-        path = cpath.joinpath(r'bitcoin_data/')
+        path = cpath.joinpath(r'bitcoin_data/token_ids/')
         extension = 'txt'
         os.chdir(path)
         result = glob.glob('*.{}'.format(extension))
@@ -413,9 +422,35 @@ def main():
                         
         #field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
-        corpus  = ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args.window_size, args.discretization_unit)
+        corpus  = train_tweet_times, dev_tweet_times, test_tweet_times = ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args.window_size, args.discretization_unit)
+        
+        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\train_tweet_times.txt", "wb") as fp:   #Pickling
+        #    pickle.dump(train_tweet_times, fp)
+        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\dev_tweet_times.txt", "wb") as fp:   #Pickling
+        #    pickle.dump(dev_tweet_times, fp)
+        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\test_tweet_times.txt", "wb") as fp:   #Pickling
+        #    pickle.dump(test_tweet_times, fp)
+        
+        
         tfidf = TfidfVectorizer(max_features=100000)
         train_corpus, dev_corpus, test_corpus = zip(*corpus)
+
+        #find index
+        idx = np.where([not isinstance(train_corpus[i], str) for i in range(len(train_corpus))])[0][0]
+        #convert from list to generator
+        train_corpus = (n for n in train_corpus[0:idx])
+
+        #find index
+        idx1 = np.where([isinstance(dev_corpus[i], str) for i in range(len(dev_corpus))])[0][0]
+        idx2 = np.where([isinstance(dev_corpus[i], str) for i in range(len(dev_corpus))])[0][-1]
+        #convert from list to generator
+        dev_corpus = (n for n in dev_corpus[idx1:idx2+1])
+
+        #find index
+        idx = np.where([isinstance(test_corpus[i], str) for i in range(len(test_corpus))])[0][0]
+        #convert from list to generator
+        test_corpus = (n for n in test_corpus[idx:])
+
         #Fit transform with train
         train_feature_matrix = tfidf.fit_transform(train_corpus)
 
@@ -425,12 +460,12 @@ def main():
 
         
         #tweet_times, n_en_sent, n_tot_sent = ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent)
-        scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\train_tfidf.npz", train_feature_matrix)
-        scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\dev_tfidf.npz", dev_feature_matrix)
-        scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\test_tfidf.npz", test_feature_matrix)
+        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\train_tfidf.npz", train_feature_matrix)
+        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\dev_tfidf.npz", dev_feature_matrix)
+        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\test_tfidf.npz", test_feature_matrix)
 
         # Percentage of english sentences
-        print("Percentage of english sentences:"+ str((n_en_sent/n_tot_sent)*100) + " %.")
+        #print("Percentage of english sentences:"+ str((n_en_sent/n_tot_sent)*100) + " %.")
 
         #Saving
         #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tweet_times.txt", "wb") as fp:   #Pickling
@@ -441,21 +476,34 @@ def main():
             pickle.dump(tfidf, infile)
     else:
         #Load tf-ids (features)
-        sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tf_idf2.npz")
+        #sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tf_idf2.npz")
 
-        
-        #Load times
-        with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tweet_times.txt", "rb") as fp:   # Unpickling
-            tweet_times = pickle.load(fp)
+        modes = ['dev', 'test', 'train']
+        for mode in modes:   
+            #Load tf-idfs (features)
+            sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\\"+ mode + "_tfidf.npz")
+            
+            #Load the corresponding times
+            with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\\"+ mode + "_tweet_times.txt", "rb") as fp:   # Unpickling
+                tweet_times = pickle.load(fp)
+            
+            tweet_batch = TweetBatch(args.discretization_unit, args.window_size)
 
-        tweet_batch = TweetBatch(args.discretization_unit, args.window_size)
+            tweet_batch.discretize_batch(tweet_times, sparse_matrix, 1, 1)
+            
+            #Store dataset    
+            path = "{}{}{}{}{}".format(cpath.joinpath(r'bitcoin_data\TF-IDF'),'\\', args.discretization_unit, ".", args.window_size)
+            os.makedirs(path, exist_ok=True)
+            # Save txt file in old format
+            #with open(path +"\\"+ mode +"_dataset.txt", "w") as f:
+            #    json.dump(dataset2, f)
+            #    f.close()
 
-        tweet_batch.discretize_batch(tweet_times, sparse_matrix, 1, 1)
-        #To average
-        #sparse_matrix[0:100].todense().mean(axis=0).shape
+            #Save matlab file 
+            with open(path +"\\"+ mode +"_dataset.mat", 'wb') as f:
+                savemat(f, {'start_date': tweet_times[0], 'end_date': tweet_times[-1], 'disc_unit': args.discretization_unit, 'window_size': args.window_size, 'X': tweet_batch.X, 'y': tweet_batch.y})
+                f.close()
 
-        #Create dataset
-        #Store dataset
 
 
     # End profiling code
