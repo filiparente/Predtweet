@@ -9,6 +9,7 @@ import numpy as np
 import re
 from pathlib import Path
 from scipy.io import savemat
+import pdb
 
 #current path
 cpath = Path.cwd()
@@ -273,17 +274,17 @@ def save_dataset(base_path, dataset, X, y, dt, dw):
     #TODO: how to save the dataset? as a json?
     # Save json 
     #print(path)
-    #os.makedirs(os.path.dirname(path), exist_ok=True)
-    path = "{}{}{}{}{}".format(base_path,'\\', dt, ".", dw)
+    #os.makedirs(os.path.dirname(path), exist_ok=True)p
+    path = "{}{}{}{}{}".format(base_path,"/", dt, ".", dw)
     os.makedirs(path, exist_ok=True)
 
     #Save txt file in old format
-    with open(path + r'\new_dataset.txt', "w") as f:
+    with open(path + r'/new_dataset.txt', "w") as f:
         json.dump(dataset, f)
         f.close()
 
     #Save matlab file 
-    with open(path + r'\dataset.mat', 'wb') as f:
+    with open(path + r'/dataset.mat', 'wb') as f:
         savemat(f, {'start_date': dataset['start_date'], 'end_date': dataset['end_date'], 'disc_unit': dt, 'window_size': dw, 'X': X, 'y': y})
         f.close()
 
@@ -292,16 +293,17 @@ def save_dataset(base_path, dataset, X, y, dt, dw):
     
 def main(window_size=3, disc_unit=1, embbedings_path="bitcoin_data/", out_path="results/"):
     embeddings_path = cpath.joinpath(embbedings_path)
-
+    
     #dataset1 contains the embbedings within each discretization unit (since the start date) and the corresponding counts
     #dataset2 contains the weighted average of the window of previous embeddings, and the count for each discretization unit
     #The unit of discretization (minute, hour, day, week...) is chosen by the user
     #The length of the window is also chosen by the user, and it represents the number of previous embeddings to take into account
+   
     dataset1, dataset2, X, y = get_datasets(embeddings_path, window_size, disc_unit)
 
     if 'embeddings' in dataset2.keys(): #dt.dw combination out of range, cannot compute embeddings
         print("Dimension of the dataset: \n \t Nº of pairs (features/embbedings, labels/counts) = (X,y) = " + str(len(dataset2['embeddings'])))
-        out_path = cpath.joinpath(out_path+'\\')
+        out_path = cpath.joinpath(out_path)
         save_dataset(out_path, dataset2, X, y,  disc_unit, window_size)
     else:
         print("Not done!")
