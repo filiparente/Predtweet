@@ -759,8 +759,13 @@ def main():
             #Load the corresponding times
             with open(os.path.join(output_dir, mode + "_tweet_times.txt"), "rb") as fp:   # Unpickling
                 tweet_times = pickle.load(fp)
+
+            if isinstance(args.window_size, str):
+                window_size = int(args.window_size)
+            if isinstance(args.discretization_unit, str):
+                discretization_unit = int(args.discretization_unit)
             
-            tweet_batch = TweetBatch(args.discretization_unit, args.window_size)
+            tweet_batch = TweetBatch(discretization_unit, window_size)
 
             tweet_batch.discretize_batch(tweet_times, sparse_matrix, 1, 1)
             
@@ -774,7 +779,7 @@ def main():
 
             #Save matlab file 
             with open(path +"\\"+ mode +"_dataset.mat", 'wb') as f:
-                savemat(f, {'start_date': tweet_times[0], 'end_date': tweet_times[-1], 'disc_unit': args.discretization_unit, 'window_size': args.window_size, 'X': tweet_batch.X, 'y': tweet_batch.y})
+                savemat(f, {'start_date': tweet_times[0], 'end_date': tweet_times[-1], 'disc_unit': discretization_unit, 'window_size': window_size, 'X': tweet_batch.X, 'y': tweet_batch.y})
                 f.close()
 
     # End profiling code
