@@ -578,6 +578,8 @@ def main():
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
     parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
+    parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
+
     args = parser.parse_args()
     print(args) 
 
@@ -652,7 +654,7 @@ def main():
 
                 
         #Read start date and end date
-        path = cpath.joinpath(csv_path+'token_ids/')
+        path = args.ids_path
         extension = 'txt'
         os.chdir(path)
         result = glob.glob('*.{}'.format(extension))
@@ -774,8 +776,6 @@ def main():
             with open(path +"\\"+ mode +"_dataset.mat", 'wb') as f:
                 savemat(f, {'start_date': tweet_times[0], 'end_date': tweet_times[-1], 'disc_unit': args.discretization_unit, 'window_size': args.window_size, 'X': tweet_batch.X, 'y': tweet_batch.y})
                 f.close()
-
-            
 
     # End profiling code
     pr.disable()
