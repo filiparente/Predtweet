@@ -1,3 +1,13 @@
+#  tirar contagens iniciais
+# guardar modelo best_model
+# accuracy no test
+# grafico mse dev e test
+# mudar a estrutura encoder/decoder
+# 
+# deixar a correr com dataset grande, lstm com dw=3
+# deixar a correr com dataset grande, lstm só com dw=1
+# deixar a correr com dataset grande, lstm com média ponderada
+
 import random
 import torch
 import numpy as np
@@ -484,6 +494,9 @@ def main():
 
             trainX_sample, trainY_sample = batch
             n_batch += 1
+
+            if trainY_sample.all() > 300:
+                print("hello")
 
             # Get our inputs ready for the network, that is, turn them into tensors
             trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)

@@ -11,3 +11,5 @@ embbedings_chunk*.txt
 ids_chunk*.txt
 *.npz
 *.bin
+datasets/*
+!datasets/*.py
