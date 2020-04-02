@@ -15,6 +15,7 @@ import datetime
 import json
 from langdetect import detect
 import csv
+import bisect
 import argparse
 import matplotlib.pyplot as plt
 import pickle
@@ -38,6 +39,131 @@ cpath = Path.cwd()
 # Start profiling code
 pr = cProfile.Profile()
 pr.enable()
+
+class NewTfidfVectorizer(TfidfVectorizer):
+
+    def fit(self, raw_documents, y=None):
+        """Learn vocabulary and idf from training set.
+
+        Parameters
+        ----------
+        raw_documents : iterable
+            An iterable which yields either str, unicode or file objects.
+        y : None
+            This parameter is not needed to compute tfidf.
+
+        Returns
+        -------
+        self : object
+            Fitted vectorizer.
+        """
+        self._check_params()
+        self._warn_for_unused_params()
+
+        #check if input is a list of lists (documents are multiple text sentences instead of single text sentences)
+        if any(isinstance(el, list) for el in raw_documents):
+            self._tfidf.n_sent_per_doc = []
+            for i in range(len(raw_documents)):
+                self._tfidf.n_sent_per_doc.append(len(raw_documents[i]))
+            
+            self._tfidf.n_doc = len(raw_documents)
+            raw_documents2 = [item for sublist in raw_documents for item in sublist]
+            assert np.cumsum(self._tfidf.n_sent_per_doc)[-1]==len(raw_documents2), "error"
+        else:
+            self._tfidf.n_sent_per_doc =  None
+
+        X = super(TfidfVectorizer, self).fit_transform(raw_documents)
+        self._tfidf.fit(X)
+        return self
+
+    def fit_transform(self, raw_documents, y=None):
+        """Learn vocabulary and idf, return term-document matrix.
+
+        This is equivalent to fit followed by transform, but more efficiently
+        implemented.
+
+        Parameters
+        ----------
+        raw_documents : iterable
+            An iterable which yields either str, unicode or file objects.
+        y : None
+            This parameter is ignored.
+
+        Returns
+        -------
+        X : sparse matrix, [n_samples, n_features]
+            Tf-idf-weighted document-term matrix.
+        """
+        self._check_params()
+
+        #check if input is a list of lists (documents are multiple text sentences instead of single text sentences)
+        if any(isinstance(el, list) for el in raw_documents):
+            self._tfidf.n_sent_per_doc = []
+            n_doc = 0
+            for raw_document in raw_documents: #i in range(len(raw_documents)):
+                self._tfidf.n_sent_per_doc.append(len(raw_document))
+                n_doc += 1
+            self._tfidf.n_doc = n_doc
+            #raw_documents = [item for sublist in raw_documents for item in sublist]
+            #assert np.cumsum(self._tfidf.n_sent_per_doc)[-1]==len(raw_documents), "error"
+        else:
+            self._tfidf.n_sent_per_doc =  1
+
+        X = super().fit_transform(raw_documents)
+        self._tfidf.fit(X)
+        # X is already a transformed view of raw_documents so
+        # we set copy to False
+        return self._tfidf.transform(X, copy=False)
+
+    def transform(self, raw_documents, copy="deprecated"):
+        """Transform documents to document-term matrix.
+
+        Uses the vocabulary and document frequencies (df) learned by fit (or
+        fit_transform).
+
+        Parameters
+        ----------
+        raw_documents : iterable
+            An iterable which yields either str, unicode or file objects.
+
+        copy : bool, default True
+            Whether to copy X and operate on the copy or perform in-place
+            operations.
+
+            .. deprecated:: 0.22
+               The `copy` parameter is unused and was deprecated in version
+               0.22 and will be removed in 0.24. This parameter will be
+               ignored.
+
+        Returns
+        -------
+        X : sparse matrix, [n_samples, n_features]
+            Tf-idf-weighted document-term matrix.
+        """
+        #check_is_fitted(self, msg='The TF-IDF vectorizer is not fitted')
+
+        # FIXME Remove copy parameter support in 0.24
+        if copy != "deprecated":
+            msg = ("'copy' param is unused and has been deprecated since "
+                   "version 0.22. Backward compatibility for 'copy' will "
+                   "be removed in 0.24.")
+            warnings.warn(msg, FutureWarning)
+        
+        #check if input is a list of lists (documents are multiple text sentences instead of single text sentences)
+        if any(isinstance(el, list) for el in raw_documents):
+            self._tfidf.n_sent_per_doc = []
+            for i in range(len(raw_documents)):
+                self._tfidf.n_sent_per_doc.append(len(raw_documents[i]))
+            
+            self._tfidf.n_doc = len(raw_documents)
+            raw_documents = [item for sublist in raw_documents for item in sublist]
+            assert np.cumsum(self._tfidf.n_sent_per_doc)[-1]==len(raw_documents), "error"
+        else:
+            self._tfidf.n_sent_per_doc =  None
+
+        X = super().transform(raw_documents)
+        return self._tfidf.transform(X, copy=False)
+
 class TweetBatch():
     def __init__(self, discretization_unit, window_size):
         dataset = {}
@@ -130,8 +256,7 @@ class TweetBatch():
                 print("memory issue!")
         #return dataset, window_n, prev_date, next_date, store_embs, counts
         #savemat(f, {'X': X, 'y': y})
-
-        
+    
     def store(self, avg_emb):
         self.dataset['input_ids'].append({
             'id': self.window_n,
@@ -213,12 +338,28 @@ def weights(k,tau,timedif):
         
     return weight_vector
 
-def ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, window_size, discretization_unit):
+def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, window_size, discretization_unit):
     #tweet_times = []
-    #train_tweet_times = []
-    #dev_tweet_times = []
-    #test_tweet_times = []
+    train_tweet_times = []
+    dev_tweet_times = []
+    test_tweet_times = []
+    train_tweets = []
+    dev_tweets = []
+    test_tweets = []
 
+    delta = timedelta(hours=discretization_unit)
+    delta2 = timedelta(hours=window_size*discretization_unit)
+
+    if cleaning:
+        f = open(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
+        fields=['Tweet_time','Text']
+        writer = csv.writer(f)
+
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        #writer.writerow(fields)
+
+    enter =  True
     for df_chunk in df:
         print("Processing chunk n " + str(n_chunks+1))
         n_chunks += 1
@@ -242,37 +383,71 @@ def ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_da
             # For all tweets
             for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
                 tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet])
+                if n_chunks == 1 and enter:
+                    prev_date = tweet_time
+                    next_date = prev_date+delta
+                    sentences = []
+                    enter = False
+
 
                 n_tot_sent += 1
                 sentence = df_chunk['text'][tweet] #sentence/tweet to encode
                     
-                if isinstance(sentence, str):
-                    try:
-                        _, _, details = cld2.detect(sentence)#detect(sentence)
-                        language= details[0][1]
-                    except:
-                        language = 'none'
-                        
-                    # Only read english sentences
-                    if language=='en': 
-                        n_en_sent += 1
-
-                        # CLEANING PHASE
-                        sentence = get_cleaned_text(sentence)
-                        if len(sentence)>0:
-                            #tweet_times.append(tweet_time.value)   
-                            if tweet_time < train_split_date:  
-                                yield sentence,_,_
-                                #train_tweet_times.append(tweet_time.value)
-                            elif tweet_time >= train_split_date+datetime.timedelta(hours=window_size*discretization_unit) and tweet_time < dev_split_date:
-                                yield _,sentence,_
-                                #dev_tweet_times.append(tweet_time.value)
-                            elif tweet_time>= dev_split_date+datetime.timedelta(hours=window_size*discretization_unit):
-                                yield _,_,sentence
-                                #test_tweet_times.append(tweet_time.value)
+                if cleaning:
+                    if isinstance(sentence, str):
+                        try:
+                            _, _, details = cld2.detect(sentence)#detect(sentence)
+                            language= details[0][1]
+                        except:
+                            language = 'none'
                             
+                        # Only read english sentences
+                        if language=='en': 
+                            n_en_sent += 1
+
+                            # CLEANING PHASE
+                            sentence = get_cleaned_text(sentence)
+                            if not len(sentence)>0:
+                                continue
+                            writer.writerow({'Tweet_time': str(tweet_time.value), 'Text': sentence})
+
+                #tweet_times.append(tweet_time.value)  
+                if tweet_time>next_date: 
+                    #return_value = sentences
+                    #sentences = []
+
+                    #prev_date = next_date
+                    #next_date = prev_date+delta
+
+                    if tweet_time < train_split_date:
+                        #yield return_value,[_],[_]
+                        train_tweet_times.append(tweet_time.value)
+                        train_tweets.append(sentences)
+                    elif tweet_time >= train_split_date+delta2 and tweet_time < dev_split_date:
+                        #yield [_],return_value,[_]
+                        dev_tweet_times.append(tweet_time.value)
+                        dev_tweets.append(sentences)
+                    elif tweet_time>= dev_split_date+delta2:
+                        #yield [_],[_],return_value
+                        test_tweet_times.append(tweet_time.value)
+                        test_tweets.append(sentences)
+                    
+                    sentences = []
+
+                    prev_date = next_date
+                    next_date = prev_date+delta
+                
+                sentences.append(sentence)
+                
         #return tweet_times, n_en_sent, n_tot_sent 
-        #return train_tweet_times, dev_tweet_times, test_tweet_times
+        return train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets
+    if cleaning:
+        print(tweet_time)
+        print(train_split_date)
+        print(dev_split_date)
+        
+        f.close()
+
           
 def get_cleaned_text(sentence):
     return " ".join(twokenize.tokenize(sentence))#.encode('utf-8')
@@ -319,15 +494,98 @@ def pre_process_df(df, timestamp=True):
 
     return df
 
+def unfold_idx(idx, dt_lengths):
+    if idx in dt_lengths:
+        outer_idx = np.where(dt_lengths==idx)[0][0]
+        inner_idx = -1
+    else:
+        outer_idx = bisect.bisect_right(dt_lengths, idx)
+        inner_idx = idx-dt_lengths[outer_idx-1]
+    
+    return outer_idx, inner_idx
+
+def get_corpus(corpus, mode):
+    #Mode is 'train', 'dev' or 'test'
+
+    #find index
+    if isinstance(corpus[0], list):
+        #corpus is a list of lists, more complicated to get split index
+
+        #get cumulative lengths of each dt
+        dt_lengths = np.cumsum([len(corpus[i]) for i in range(len(corpus))])
+
+        if mode == 'train':
+            idx = np.where([not isinstance(corpus[i][j], str) for i in range(len(corpus)) for j in range(len(corpus[i]))])[0]
+            if not idx.any():
+                return corpus
+            else:
+                idx = idx[0]
+
+            outer_idx, inner_idx = unfold_idx(idx, dt_lengths)
+
+            corpus[outer_idx][:] = corpus[outer_idx][0:inner_idx]
+            corpus = corpus[0:outer_idx+1]
+            
+
+        elif mode == 'dev':
+            idxs = np.where([isinstance(corpus[i][j], str) for i in range(len(corpus)) for j in range(len(corpus[i]))])
+            idx1 = idxs[0][0]
+            idx2 = idxs[0][-1]
+
+            outer_idx1, inner_idx1 = unfold_idx(idx1, dt_lengths)          
+            outer_idx2, inner_idx2 = unfold_idx(idx2, dt_lengths)
+
+            corpus[outer_idx1+1][:] = corpus[outer_idx1+1][0:inner_idx1]
+            corpus[outer_idx2][:] = corpus[outer_idx2][0:inner_idx2]
+            corpus = corpus[outer_idx1+1:outer_idx2+1]
+            
+        
+        elif mode == 'test':
+            
+            idx = np.where([isinstance(corpus[i][j], str) for i in range(len(corpus)) for j in range(len(corpus[i]))])[0][0]
+
+            outer_idx, inner_idx = unfold_idx(idx, dt_lengths)          
+
+            corpus[outer_idx+1][:] = corpus[outer_idx+1][inner_idx:]
+            corpus = corpus[outer_idx+1:]
+            
+
+    else:
+        if mode == 'train':
+            idx = np.where([not isinstance(corpus[i], str) for i in range(len(corpus))])[0][0]
+
+            corpus = corpus[0:idx]
+
+        elif mode == 'dev':
+            idx1 = np.where([isinstance(corpus[i], str) for i in range(len(corpus))])[0][0]
+            idx2 = np.where([isinstance(corpus[i], str) for i in range(len(corpus))])[0][-1]
+
+            corpus = corpus[idx1+1:idx2+1]
+
+        elif mode == 'test':
+            idx = np.where([isinstance(corpus[i], str) for i in range(len(corpus))])[0][0]
+
+            corpus = corpus[idx+1:]
+
+    
+    return corpus
+
 def main():
     parser = argparse.ArgumentParser(description='Create tf idfs of a tweet dataset to be used as embeddings.')
     
     parser.add_argument('--csv_path', default='bitcoin_data/', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     args = parser.parse_args()
     print(args) 
+
+    output_dir = args.output_dir
+    csv_path = args.csv_path
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
 
     # If there's a GPU available...
     if torch.cuda.is_available():    
@@ -356,22 +614,33 @@ def main():
             print("No csv in the bitcoin_data folder!")
         else:
             # Check if there is any csv with the keyword 'sorted' in its name
+            bool_cleaned = [('cleaned' in csv_file) for csv_file in result] 
             bool_sorted = [('sorted' in csv_file) for csv_file in result]
             bool_filtered = [('filtered' in csv_file) for csv_file in result]
 
-            joint_bool = bool_sorted and bool_filtered
+            joint_bool = bool_sorted and bool_filtered and bool_cleaned
+            joint_bool2 = bool_sorted and bool_filtered
+            
+            if any(joint_bool):
+                print("Found cleaned, sorted and filtered csv! Loading in chunks...")
 
-            if any(joint_bool): 
+                # Load data from sorted csv in chunks
+                df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool)[0][0]]), chunks=True)
+                
+                cleaning = False
+            elif any(joint_bool2): 
                 print("Found sorted and filtered csv! Loading in chunks...")
 
                 # Load data from sorted csv in chunks
-                df = load_data(cpath.joinpath(r'bitcoin_data/'+ result[np.where(joint_bool)[0][0]]), chunks=True)
+                df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool2)[0][0]]), chunks=True)
+
+                cleaning = True
 
             else:
                 print("Did not found sorted csv. Loading unsorted csv...")
 
                 # Load data from csv
-                df = load_data(cpath.joinpath(r'/bitcoin_data/tweets.csv'), chunks=False)
+                df = load_data(cpath.joinpath(csv_path+'\tweets.csv'), chunks=False)
 
                 df = pre_process_df(df)
 
@@ -383,7 +652,7 @@ def main():
 
                 
         #Read start date and end date
-        path = cpath.joinpath(r'bitcoin_data/token_ids/')
+        path = cpath.joinpath(csv_path+'token_ids/')
         extension = 'txt'
         os.chdir(path)
         result = glob.glob('*.{}'.format(extension))
@@ -408,7 +677,8 @@ def main():
 
         #Total number of dt's
         n_dt = (time_delta.total_seconds()/(args.discretization_unit*3600))
-        split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),[0.8,0.1,0.1]))
+        percentages = [0.8, 0.1, 0.1]
+        split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
         train_split_date = (start_date+datetime.timedelta(hours = split_idx[0])).tz_localize('US/Eastern')
         dev_split_date = (start_date+datetime.timedelta(hours = split_idx[1])).tz_localize('US/Eastern')
@@ -422,34 +692,35 @@ def main():
                         
         #field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
-        corpus  = train_tweet_times, dev_tweet_times, test_tweet_times = ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args.window_size, args.discretization_unit)
+        #train_tweet_times, dev_tweet_times, test_tweet_times = ChunkIterator(...)
+        #corpus = 
+        train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets = ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args.window_size, args.discretization_unit)
         
-        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\train_tweet_times.txt", "wb") as fp:   #Pickling
-        #    pickle.dump(train_tweet_times, fp)
-        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\dev_tweet_times.txt", "wb") as fp:   #Pickling
-        #    pickle.dump(dev_tweet_times, fp)
-        #with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\test_tweet_times.txt", "wb") as fp:   #Pickling
-        #    pickle.dump(test_tweet_times, fp)
+        with open(os.path.join(output_dir, "train_tweet_times.txt"), "wb") as fp:   #Pickling
+            pickle.dump(train_tweet_times, fp)
+        with open(os.path.join(output_dir, "dev_tweet_times.txt"), "wb") as fp:   #Pickling
+            pickle.dump(dev_tweet_times, fp)
+        with open(os.path.join(output_dir, "test_tweet_times.txt"), "wb") as fp:   #Pickling
+            pickle.dump(test_tweet_times, fp)
+
+        train_corpus = train_tweets
+        dev_corpus = dev_tweets
+        test_corpus = test_tweets
         
-        
-        tfidf = TfidfVectorizer(max_features=100000)
-        train_corpus, dev_corpus, test_corpus = zip(*corpus)
+        tfidf = NewTfidfVectorizer(max_features=100000)
+        #train_corpus, dev_corpus, test_corpus = zip(*corpus)
 
-        #find index
-        idx = np.where([not isinstance(train_corpus[i], str) for i in range(len(train_corpus))])[0][0]
+        #train_corpus = get_corpus(train_corpus, 'train')
         #convert from list to generator
-        train_corpus = (n for n in train_corpus[0:idx])
+        #train_corpus = (n for n in train_corpus) 
 
-        #find index
-        idx1 = np.where([isinstance(dev_corpus[i], str) for i in range(len(dev_corpus))])[0][0]
-        idx2 = np.where([isinstance(dev_corpus[i], str) for i in range(len(dev_corpus))])[0][-1]
+        #dev_corpus = get_corpus(dev_corpus, 'dev')
         #convert from list to generator
-        dev_corpus = (n for n in dev_corpus[idx1:idx2+1])
+        #dev_corpus = (n for n in dev_corpus) 
 
-        #find index
-        idx = np.where([isinstance(test_corpus[i], str) for i in range(len(test_corpus))])[0][0]
+        #test_corpus = get_corpus(test_corpus, 'test')
         #convert from list to generator
-        test_corpus = (n for n in test_corpus[idx:])
+        #test_corpus = (n for n in test_corpus) 
 
         #Fit transform with train
         train_feature_matrix = tfidf.fit_transform(train_corpus)
@@ -460,9 +731,9 @@ def main():
 
         
         #tweet_times, n_en_sent, n_tot_sent = ChunkIterator(df, n_chunks, chunksize, n_tot_sent, n_en_sent)
-        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\train_tfidf.npz", train_feature_matrix)
-        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\dev_tfidf.npz", dev_feature_matrix)
-        #scipy.sparse.save_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\test_tfidf.npz", test_feature_matrix)
+        scipy.sparse.save_npz(os.path.join(output_dir, "train_tfidf.npz"), train_feature_matrix)
+        scipy.sparse.save_npz(os.path.join(output_dir, "dev_tfidf.npz"), dev_feature_matrix)
+        scipy.sparse.save_npz(os.path.join(output_dir, "test_tfidf.npz"), test_feature_matrix)
 
         # Percentage of english sentences
         #print("Percentage of english sentences:"+ str((n_en_sent/n_tot_sent)*100) + " %.")
@@ -472,7 +743,7 @@ def main():
         #    pickle.dump(tweet_times, fp)
 
         #Save vectorizer: to analyze dictionary use .vocabulary_
-        with open('vectorizer.pk', 'wb') as infile:
+        with open(os.path.join(output_dir, 'vectorizer.pk'), 'wb') as infile:
             pickle.dump(tfidf, infile)
     else:
         #Load tf-ids (features)
