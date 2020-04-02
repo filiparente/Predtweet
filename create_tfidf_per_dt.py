@@ -440,13 +440,13 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                 sentences.append(sentence)
                 
         #return tweet_times, n_en_sent, n_tot_sent 
-        return train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets
     if cleaning:
         print(tweet_time)
         print(train_split_date)
         print(dev_split_date)
         
         f.close()
+    return train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets
 
           
 def get_cleaned_text(sentence):
