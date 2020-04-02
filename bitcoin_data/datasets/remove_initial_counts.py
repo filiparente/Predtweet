@@ -26,6 +26,7 @@ def main():
 
     #Get list of all folders in current datasets directory
     for filename in r2:
+        print(filename)
         #for file in files:
         #    #print os.path.join(subdir, file)
         #    filepath = subdir + os.sep + file
