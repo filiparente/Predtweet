@@ -12,7 +12,7 @@ parser.add_argument('--create_windows', action='store_true', help="If the user w
 args = parser.parse_args()
 print(args) 
 
-dt = [1,3,4,6,12,24,48]  #discretization unit in hours
+dt = [24, 48] #[1,3,4,6,12,24,48]  #discretization unit in hours
 
 if args.create_windows:
     dw = [1,3,5,7] #length of the sliding window of previous features, in units of dt

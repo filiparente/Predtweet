@@ -311,7 +311,7 @@ def main(window_size=3, disc_unit=1, embbedings_path="bitcoin_data/", out_path="
     dataset1, dataset2, X, y = get_datasets(embeddings_path, window_size, disc_unit)
 
     if 'embeddings' in dataset2.keys(): #dt.dw combination out of range, cannot compute embeddings
-        print("Dimension of the dataset: \n \t Nº of pairs (features/embbedings, labels/counts) = (X,y) = " + str(len(dataset2['embeddings'])))
+        print("Dimension of the dataset: \n \t N of pairs (features/embbedings, labels/counts) = (X,y) = " + str(len(dataset2['embeddings'])))
         out_path = cpath.joinpath(out_path)
         save_dataset(out_path, dataset2, X, y,  disc_unit, window_size)
     else:
