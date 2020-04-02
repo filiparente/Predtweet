@@ -762,8 +762,13 @@ def main():
 
             if isinstance(args.window_size, str):
                 window_size = int(args.window_size)
+            else:
+                window_size = args.window_size
+                
             if isinstance(args.discretization_unit, str):
                 discretization_unit = int(args.discretization_unit)
+            else:
+                discretization_unit = args.discretization_unit
             
             tweet_batch = TweetBatch(discretization_unit, window_size)
 
