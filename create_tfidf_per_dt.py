@@ -338,7 +338,7 @@ def weights(k,tau,timedif):
         
     return weight_vector
 
-def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, window_size, discretization_unit):
+def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args):
     #tweet_times = []
     train_tweet_times = []
     dev_tweet_times = []
@@ -347,11 +347,11 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     dev_tweets = []
     test_tweets = []
 
-    delta = timedelta(hours=discretization_unit)
-    delta2 = timedelta(hours=window_size*discretization_unit)
+    delta = timedelta(hours=args.discretization_unit)
+    delta2 = timedelta(hours=args.window_size*args.discretization_unit)
 
     if cleaning:
-        f = open(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
+        f = open(args.csv_path+'cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
         fields=['Tweet_time','Text']
         writer = csv.writer(f)
 
@@ -455,10 +455,10 @@ def get_cleaned_text(sentence):
 def load_data(path, chunks=False):
     # Load the bitcoin data
     #col_names = ["id", "user", "fullname", "url", "timestamp", "replies", "likes", "retweets", "text"]
-    chunksize = 500000
+    chunksize = 50000#500000
 
     if chunks:
-        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
+        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize, nrows=5*chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
     else:
         nRowsRead = None # specify 'None' if want to read whole file
         df = pd.read_csv(path, delimiter=';', nrows = nRowsRead)#, parse_dates=['timestamp'], index_col=['timestamp'])
@@ -573,11 +573,11 @@ def get_corpus(corpus, mode):
 def main():
     parser = argparse.ArgumentParser(description='Create tf idfs of a tweet dataset to be used as embeddings.')
     
-    parser.add_argument('--csv_path', default='bitcoin_data/', help="OS path to the folder where the input ids are located.")
+    parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
     parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
-    parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
+    parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
 
     args = parser.parse_args()
@@ -679,7 +679,7 @@ def main():
 
         #Total number of dt's
         n_dt = (time_delta.total_seconds()/(args.discretization_unit*3600))
-        percentages = [0.8, 0.1, 0.1]
+        percentages = [0.02, 0.005, 0.005] #[0.8, 0.1, 0.1]
         split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
         train_split_date = (start_date+datetime.timedelta(hours = split_idx[0])).tz_localize('US/Eastern')
@@ -690,13 +690,13 @@ def main():
         n_en_sent = 0
         n_tot_sent = 0
 
-        chunksize = 500000
+        chunksize = 50000#500000
                         
         #field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
         #train_tweet_times, dev_tweet_times, test_tweet_times = ChunkIterator(...)
         #corpus = 
-        train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets = ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args.window_size, args.discretization_unit)
+        train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets = ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args)
         
         with open(os.path.join(output_dir, "train_tweet_times.txt"), "wb") as fp:   #Pickling
             pickle.dump(train_tweet_times, fp)
