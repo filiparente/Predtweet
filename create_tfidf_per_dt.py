@@ -455,10 +455,10 @@ def get_cleaned_text(sentence):
 def load_data(path, chunks=False):
     # Load the bitcoin data
     #col_names = ["id", "user", "fullname", "url", "timestamp", "replies", "likes", "retweets", "text"]
-    chunksize = 50000#500000
+    chunksize = 500000
 
     if chunks:
-        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize, nrows=5*chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
+        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
     else:
         nRowsRead = None # specify 'None' if want to read whole file
         df = pd.read_csv(path, delimiter=';', nrows = nRowsRead)#, parse_dates=['timestamp'], index_col=['timestamp'])
@@ -679,7 +679,7 @@ def main():
 
         #Total number of dt's
         n_dt = (time_delta.total_seconds()/(args.discretization_unit*3600))
-        percentages = [0.02, 0.005, 0.005] #[0.8, 0.1, 0.1]
+        percentages = [0.8, 0.1, 0.1]
         split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
         train_split_date = (start_date+datetime.timedelta(hours = split_idx[0])).tz_localize('US/Eastern')
@@ -690,7 +690,7 @@ def main():
         n_en_sent = 0
         n_tot_sent = 0
 
-        chunksize = 50000#500000
+        chunksize = 500000
                         
         #field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
