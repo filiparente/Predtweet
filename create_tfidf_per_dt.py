@@ -576,7 +576,7 @@ def main():
     parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
 
@@ -754,10 +754,10 @@ def main():
         modes = ['dev', 'test', 'train']
         for mode in modes:   
             #Load tf-idfs (features)
-            sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\\"+ mode + "_tfidf.npz")
+            sparse_matrix = scipy.sparse.load_npz(os.path.join(output_dir, mode + "_tfidf.npz"))
             
             #Load the corresponding times
-            with open(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\\"+ mode + "_tweet_times.txt", "rb") as fp:   # Unpickling
+            with open(os.path.join(output_dir, mode + "_tweet_times.txt"), "rb") as fp:   # Unpickling
                 tweet_times = pickle.load(fp)
             
             tweet_batch = TweetBatch(args.discretization_unit, args.window_size)
@@ -765,7 +765,7 @@ def main():
             tweet_batch.discretize_batch(tweet_times, sparse_matrix, 1, 1)
             
             #Store dataset    
-            path = "{}{}{}{}{}".format(cpath.joinpath(r'bitcoin_data\TF-IDF'),'\\', args.discretization_unit, ".", args.window_size)
+            path = "{}{}{}{}{}".format(output_dir,'\\', args.discretization_unit, ".", args.window_size)
             os.makedirs(path, exist_ok=True)
             # Save txt file in old format
             #with open(path +"\\"+ mode +"_dataset.txt", "w") as f:
