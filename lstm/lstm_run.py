@@ -1,12 +1,6 @@
-#  tirar contagens iniciais
-# guardar modelo best_model
-# accuracy no test
-# grafico mse dev e test
-# mudar a estrutura encoder/decoder
-# 
-# deixar a correr com dataset grande, lstm com dw=3
-# deixar a correr com dataset grande, lstm só com dw=1
-# deixar a correr com dataset grande, lstm com média ponderada
+# 1. new_cut_dataset, num_train_epochs, deixar a correr com dataset grande, lstm com dw=3
+# 1. deixar a correr com dataset grande, lstm só com dw=1
+# 1. deixar a correr com dataset grande, lstm com média ponderada
 
 import random
 import torch
@@ -167,7 +161,7 @@ def collate_fn(data):
     X, y = np.array([data[i]['X'] for i in range(len(data))]), np.array([data[i]['y'] for i in range(len(data))])#data[0]['X'], data[0]['y']  #isto é com batch_size=1 #create_dataset(data, look_back=window_size)
     return X, y #.float(),lengths.long()
 
-def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, loss, prefix=""):
+def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, prefix="", store=True):
     # Validation
     eval_output_dir = args.output_dir
     results = {} 
@@ -185,6 +179,10 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     preds = None
     out_label_ids = None
 
+    val_obs_seq = []
+    val_preds_seq = []
+
+
     n_batch = 1
 
     eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
@@ -195,6 +193,10 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         decoder = decoder.eval()      
 
         trainX_sample, trainY_sample = batch
+        
+        if store:
+            val_obs_seq.append(trainY_sample)
+
         n_batch += 1
 
         # Get our inputs ready for the network, that is, turn them into tensors
@@ -219,6 +221,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
             # Do forward pass through decoder (decoder gets hidden state from encoder)
             tmp_eval_loss, logits = decoder(trainY_sample, hidden, criterion)
 
+            val_preds_seq.append(logits)
+
             print("Logits " + str(logits))
             print("Counts " + str(trainY_sample))
             eval_loss += tmp_eval_loss.mean().item()
@@ -234,12 +238,12 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
             preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
             out_label_ids = np.append(out_label_ids, trainY_sample, axis=0)
 
-    eval_loss = eval_loss / nb_eval_steps
+    eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
     preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
     
     #since we are doing regression, our metric will be the mse
-    result = {"mse":mean_squared_error(preds, out_label_ids), "loss":loss} #compute_metrics(eval_task, preds, out_label_ids)
+    result = {"mse":mean_squared_error(preds, out_label_ids)} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
 
     output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
@@ -258,7 +262,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
                 print("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
 
-    return results
+    return results, val_obs_seq, val_preds_seq
 
 def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1):
     
@@ -329,7 +333,7 @@ def main():
     #Parser
     parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
 
-    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/results/", help="OS path to the folder where the embeddings are located.")
+    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', type = int, default=3, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
@@ -339,13 +343,14 @@ def main():
     #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
     parser.add_argument("--model_name_or_path", default=r'/mnt/hdd_disk2/frente/finetuning_outputs/checkpoint-1', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--num_train_epochs", default=400, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--num_train_epochs", default=50, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument("--logging_steps", type=int, default=300, help="Log every X updates steps.")
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
+    parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
     
     args = parser.parse_args()
     print(args)
@@ -354,11 +359,14 @@ def main():
     discretization_unit = args.discretization_unit
     window_size = args.window_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt'
+    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
     train_dataloader, dev_dataloader, test_dataloader = load_input(path = json_file_path, window_size=window_size, discretization_unit=discretization_unit)
+
+    train_batch_size = 24
+    val_batch_size = 1
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
@@ -435,8 +443,11 @@ def main():
     print("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     print("  Total optimization steps = %d", num_train_optimization_steps)
 
-    # Store our loss and accuracy for plotting
+    # Store our loss and accuracy in the train set for plotting
     train_loss_set = []
+
+    # Store our loss and accuracy in the validation set for plotting
+    val_loss_set = []
 
     global_step = 0
     epochs_trained = 0
@@ -444,6 +455,8 @@ def main():
 
     best_mse_eval = np.inf
     save_best = False
+    final_epoch = False
+    best_val_preds_seq = []
 
     # Check if continuing training from a checkpoint
     if os.path.exists(args.model_name_or_path): #Path to pre-trained model
@@ -473,6 +486,12 @@ def main():
 
     #Training
     for epoch in train_iterator:
+        if epoch == args.num_train_epochs-1:
+            final_epoch = True
+            train_obs_seq = []
+            train_preds_seq = []
+
+
         epoch_iterator = tqdm(train_dataloader, desc="Iteration") 
 
         # Tracking variables
@@ -493,10 +512,11 @@ def main():
                 continue
 
             trainX_sample, trainY_sample = batch
-            n_batch += 1
 
-            if trainY_sample.all() > 300:
-                print("hello")
+            if final_epoch:
+                train_obs_seq.append(trainY_sample)
+
+            n_batch += 1
 
             # Get our inputs ready for the network, that is, turn them into tensors
             trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
@@ -522,7 +542,7 @@ def main():
             
             # Compute the loss
             # Do forward pass through decoder (decoder gets hidden state from encoder)
-            loss,_ = decoder(trainY_sample, hidden, criterion)
+            loss, preds = decoder(trainY_sample, hidden, criterion)
 
             if n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -533,7 +553,10 @@ def main():
             loss.backward()
 
             #Store 
-            train_loss_set.append(loss.item()) 
+            train_loss_set.append(loss.item())
+
+            if final_epoch:
+                train_preds_seq.append(preds)
         
             # Update tracking variables
             tr_loss += loss.item()
@@ -564,8 +587,11 @@ def main():
                     logging_loss = tr_loss
 
                     if args.evaluate_during_training: 
+                        if global_step == args.logging_steps: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
+                            results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
+                        else:
+                            results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
                         
-                        results = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, loss_scalar, prefix = str(n_eval))
                         n_eval += 1
                         for key, value in results.items():
                             eval_key = "eval_{}".format(key)
@@ -574,6 +600,11 @@ def main():
                         if results["mse"] < best_mse_eval:
                             save_best = True
                             best_mse_eval = results["mse"]
+                            best_val_preds_seq = val_preds_seq
+                        
+                        
+                        #Store 
+                        val_loss_set.append((results["mse"], global_step, epoch)) 
 
 
                     print(json.dumps({**logs, **{"step": str(global_step)}}))
@@ -628,12 +659,87 @@ def main():
             train_iterator.close()
             break
 
+    # Plot training loss (mse)
     plt.figure(figsize=(15,8))
-    plt.title("Training loss")
+    plt.title("Training loss com batch size "+str(train_batch_size))
     plt.xlabel("Batch")
     plt.ylabel("Loss")
     plt.plot(train_loss_set)
-    plt.show()
+    #plt.show()
+
+    plt.savefig(os.path.join(args.output_dir)+'training_loss.png', bbox_inches='tight')
+
+    # Plot validation loss (mse)
+    plt.figure(figsize=(15,8))
+    plt.title("Validation loss with batch size "+str(val_batch_size))
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.plot([p[2] for p in val_loss_set], [p[0] for p in val_loss_set])
+    #plt.show()
+
+    plt.savefig(os.path.join(args.output_dir)+'validation_loss.png', bbox_inches='tight')
+
+    # Plot true observations and predictions in the end of the training process (final epoch), in the same figure
+    plt.figure(figsize=(15,8))
+    plt.title("Train observation sequence: real and predicted")
+    plt.xlabel("Sample")
+    plt.ylabel("Count")
+    obs_plot, = plt.plot(np.concatenate(train_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+    pred_plot, = plt.plot(torch.cat(train_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+    plt.legend(handles=[obs_plot, pred_plot])
+    #plt.show()
+
+    plt.savefig(os.path.join(args.output_dir)+'train_obs_preds_seq.png', bbox_inches='tight')
+
+
+    # Plot true observations and predictions in the validation set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
+    plt.figure(figsize=(15,8))
+    plt.title("Validation observation sequence: real and predicted")
+    plt.xlabel("Sample")
+    plt.ylabel("Count")
+    obs_plot, = plt.plot(np.concatenate(val_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+    pred_plot, = plt.plot(torch.cat(best_val_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+    plt.legend(handles=[obs_plot, pred_plot])
+    #plt.show()
+
+    plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq.png', bbox_inches='tight')
+
+    # Check accuracy in test set
+
+    # Load best model
+    if args.test_acc:
+        best_model_dir = os.path.join(args.output_dir, "best_model/")
+        if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
+            #Create encoder and decoder models
+            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, device)
+            best_decoder = Decoder(HIDDEN_DIM, device)
+
+            #Put models in gpu
+            best_encoder.cuda()
+            best_decoder.cuda()
+         
+            
+            #Load encoder and decoder states
+            best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
+            best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
+             
+            results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
+
+            for key, value in results.items():
+                eval_key = "eval_{}".format(key)
+                logs[eval_key] = str(value)
+
+    # Plot true observations and predictions in the test set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
+    plt.figure(figsize=(15,8))
+    plt.title("Test observation sequence: real and predicted")
+    plt.xlabel("Sample")
+    plt.ylabel("Count")
+    obs_plot, = plt.plot(np.concatenate(test_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+    pred_plot, = plt.plot(torch.cat(test_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+    plt.legend(handles=[obs_plot, pred_plot])
+    #plt.show()
+
+    plt.savefig(os.path.join(args.output_dir)+'test_obs_preds_seq.png', bbox_inches='tight')
 
     # See what the scores are after training
     #with torch.no_grad():
