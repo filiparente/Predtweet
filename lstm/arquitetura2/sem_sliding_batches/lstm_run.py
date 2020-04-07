@@ -92,6 +92,11 @@ class Encoder(nn.Module):
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
+        if inputs.shape[1] != self.hidden[0].shape[1]: #different batch sizes
+            tuple_aux = (self.hidden[0][:,:inputs.shape[1],:].contiguous(), self.hidden[1][:,:inputs.shape[1],:].contiguous())
+            self.hidden = None
+            self.hidden = tuple_aux #BECAUSE TUPLES ARE IMMUTABLE
+
         self.output, self.hidden = self.lstm(inputs, self.hidden)
         return self.output, self.hidden
 
@@ -105,27 +110,27 @@ class Decoder(nn.Module):
         self.device = device
 
     def forward(self, outputs, hidden, criterion):
-        num_steps, batch_size = outputs.shape
+        batch_size, seq_len = outputs.shape
         # Create initial start value/token
         #input = torch.tensor([[0.0]] * batch_size, dtype=torch.float).to(self.device)
         # Convert (batch_size, output_size) to (seq_len, batch_size, output_size)
         #input = input.unsqueeze(0)
 
         loss = 0
-        for i in range(num_steps):
+        #for i in range(seq_len):
             # Push current input through LSTM: (seq_len=1, batch_size, input_size=1)
             #output, hidden = self.lstm(input, hidden)
             # Push the output of last step through linear layer; returns (batch_size, 1)
             #output = self.out(output[-1])
-            output = self.out(hidden)
+        output = self.out(hidden)
             # Generate input for next step by adding seq_len dimension (see above)
             #input = output.unsqueeze(0)
             # Compute loss between predicted value and true value
-            if outputs.shape[1]!=1:
-                outputs = outputs.unsqueeze(0)
+        if outputs.shape[1]!=1:
+            outputs = outputs.unsqueeze(0)
 
             #loss += criterion(output, outputs[:, i].view(-1,1))
-            loss += criterion(output[0], outputs[:, i].view(-1,1))
+        loss = criterion(output.view(-1,1), outputs.view(-1,1))
         return loss, output
 
 class LSTMRegression(nn.Module):
@@ -163,11 +168,11 @@ class MyCollator(object):
         for i in range(batch_size):
             for j in range(seq_len):
                 if n==len(batch): #exceeded dataset
-                    if j<seq_len:
+                    if j<seq_len-1:
                         #remove last batch because it is not compleeted, and so we cannot concatenate it
                         X = X[:i,:,:]
                         y = y[:i, :]
-                    break
+                    return X,y
                 X[i,j,:] = batch[n]['X']
                 y[i,j] = batch[n]['y']
                 n += 1
@@ -256,7 +261,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            # encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            if step==0:
+                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -383,8 +389,8 @@ def main():
 
     parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
-    parser.add_argument('--window_size', type = int, default=3, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
-    parser.add_argument('--seq_len', type = int, default=100, help='Input dimension (number of timestamps).')
+    parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
+    parser.add_argument('--seq_len', type = int, default=10, help='Input dimension (number of timestamps).')
     parser.add_argument('--batch_size', type = int, default=3, help='How many batches of sequence length inputs per iteration.')
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
@@ -574,7 +580,7 @@ def main():
             trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
             #if trainX_sample.shape[0] == 1:
             #    trainX_sample = trainX_sample.unsqueeze(0)
-            trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).unsqueeze(0).to(device)
+            trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
 
             # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
             trainX_sample = trainX_sample.transpose(1,0)
@@ -588,7 +594,8 @@ def main():
 
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM
-            #encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            if step==0:
+                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -605,7 +612,8 @@ def main():
                 loss = loss / args.gradient_accumulation_steps
 
             # Backpropagation, compute gradients 
-            loss.backward()
+            loss.backward(retain_graph=True)
+            
 
             #Store 
             train_loss_set.append(loss.item())
@@ -707,9 +715,13 @@ def main():
             #loss = loss_function(scores, trainY_sample)
             #loss.backward()
             #optimizer.step()
+            
+
             if args.max_steps > 0 and global_step > args.max_steps:
                     epoch_iterator.close()
                     break
+            
+        
         if args.max_steps > 0 and global_step > args.max_steps:
             train_iterator.close()
             break
