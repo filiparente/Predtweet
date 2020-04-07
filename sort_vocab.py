@@ -128,13 +128,13 @@ class NewTfidfVectorizer(TfidfVectorizer):
         return self._tfidf.transform(X, copy=False)
 
 
-corpus = [['This is the first document.', 'This is also the first document.'], ['And this is the second one.'], ['Is this the first document? No, third.']]
-vectorizer = NewTfidfVectorizer()
-X = vectorizer.fit(corpus)
+#corpus = [['This is the first document.', 'This is also the first document.'], ['And this is the second one.'], ['Is this the first document? No, third.']]
+#vectorizer = NewTfidfVectorizer()
+#X = vectorizer.fit(corpus)
 
 
 
-vectorizer = pickle.load(open(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\vectorizer.pk', "rb"))
+vectorizer = pickle.load(open(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\vectorizer.pk', "rb"))
 
 print("done!")
 
@@ -154,6 +154,6 @@ for i in range(len(indices)):
 
 d = {'IDF': idfs, 'Word': features}
 df = pd.DataFrame(data=d)
-df.to_csv(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\IDF_train.csv')
+df.to_csv(r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\IDF_train.csv')
 
             
