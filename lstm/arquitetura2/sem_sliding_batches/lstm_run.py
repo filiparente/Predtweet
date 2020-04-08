@@ -272,8 +272,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            #if step==0:
-            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            if step==0:
+                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -608,8 +608,8 @@ def main():
 
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM
-            #if step==0:
-            encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            if step==0:
+                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -626,7 +626,7 @@ def main():
                 loss = loss / args.gradient_accumulation_steps
 
             # Backpropagation, compute gradients 
-            loss.backward()
+            loss.backward(retain_graph=True)
             
 
             #Store 
