@@ -681,38 +681,6 @@ def main():
                 global_step += 1
                 #print("Global step nº: " + str(global_step))
 
-                if args.logging_steps>0 and global_step%args.logging_steps==0:
-                    print("Train loss : {}".format(tr_loss/nb_tr_steps))
-                    logs={}
-                    
-                    # DUVIDA: Pedir a zita para explicar isto
-                    loss_scalar = (tr_loss - logging_loss) / args.logging_steps
-                    logs["loss"] = str(loss_scalar)
-                    logging_loss = tr_loss
-
-                    if args.evaluate_during_training: 
-                        if global_step == args.logging_steps: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
-                            results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
-                        else:
-                            results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
-                        
-                        n_eval += 1
-                        for key, value in results.items():
-                            eval_key = "eval_{}".format(key)
-                            logs[eval_key] = str(value)
-
-                        if results["mse"] < best_mse_eval:
-                            save_best = True
-                            best_mse_eval = results["mse"]
-                            best_val_preds_seq = val_preds_seq
-                        
-                        
-                        #Store 
-                        val_loss_set.append((results["mse"], global_step, epoch)) 
-
-
-                    print(json.dumps({**logs, **{"step": str(global_step)}}))
-
                 if args.save_steps>0 and (global_step%args.save_steps==0 or save_best):
                     # Save model checkpoint
                     if save_best:
@@ -723,14 +691,7 @@ def main():
 
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
-                    #model_to_save = (
-                    #    encoder.module if hasattr(encoder, "module") else encoder
-                    #)  # Take care of distributed/parallel training
-                    #model_to_save.save(output_dir)
-                    #model_to_save = (
-                    #    decoder.module if hasattr(decoder, "module") else decoder
-                    #)  # Take care of distributed/parallel training
-                    #model_to_save.save(output_dir)
+
                     torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
                     torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
 
@@ -749,6 +710,40 @@ def main():
                 #    print("Check if the classifier layer weights are being updated:") #logger.info
                 #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
                 #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
+        
+        #Evaluate at the end of the epoch
+        if (step + 1) % args.gradient_accumulation_steps == 0:
+            if args.logging_steps>0 and args.num_train_epochs%args.logging_steps==0: 
+                print("Train loss : {}".format(tr_loss/nb_tr_steps))
+                logs={}
+                    
+                # DUVIDA: Pedir a zita para explicar isto
+                loss_scalar = (tr_loss - logging_loss) / args.logging_steps
+                logs["loss"] = str(loss_scalar)
+                logging_loss = tr_loss
+
+                if args.evaluate_during_training: 
+                    if global_step == args.logging_steps: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
+                        results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
+                    else:
+                        results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
+                        
+                    n_eval += 1
+                    for key, value in results.items():
+                        eval_key = "eval_{}".format(key)
+                        logs[eval_key] = str(value)
+
+                    if results["mse"] < best_mse_eval:
+                        save_best = True
+                        best_mse_eval = results["mse"]
+                        best_val_preds_seq = val_preds_seq
+                        
+                        
+                    #Store 
+                    val_loss_set.append((results["mse"], global_step, epoch)) 
+
+
+                    print(json.dumps({**logs, **{"step": str(global_step)}}))
 
 
             #print("Loss:", loss.item())
