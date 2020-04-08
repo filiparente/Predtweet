@@ -430,7 +430,7 @@ def main():
     seq_len = args.seq_len
     batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
+    json_file_path = path+str(discretization_unit)+'.0/new_cut_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
@@ -583,7 +583,8 @@ def main():
                 continue
 
             trainX_sample, trainY_sample = batch
-
+            if trainX_sample.shape[0]==0:#no example
+                continue
             if final_epoch:
                 train_obs_seq.append(trainY_sample)
 
@@ -594,10 +595,10 @@ def main():
             #if trainX_sample.shape[0] == 1:
             #    trainX_sample = trainX_sample.unsqueeze(0)
             trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
-
+            
             # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
             trainX_sample = trainX_sample.transpose(1,0)
-
+            #print(trainY_sample)
             # Run our forward pass
             #scores = model(trainX_sample)
 
@@ -607,8 +608,8 @@ def main():
 
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM
-            if step==0:
-                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            #if step==0:
+            encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -625,7 +626,7 @@ def main():
                 loss = loss / args.gradient_accumulation_steps
 
             # Backpropagation, compute gradients 
-            loss.backward(retain_graph=True)
+            loss.backward()
             
 
             #Store 
