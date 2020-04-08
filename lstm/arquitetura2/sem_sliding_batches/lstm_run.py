@@ -1,6 +1,6 @@
 # 1. new_cut_dataset, num_train_epochs, deixar a correr com dataset grande, lstm com dw=3
-# 1. deixar a correr com dataset grande, lstm só com dw=1
-# 1. deixar a correr com dataset grande, lstm com média ponderada
+# 1. deixar a correr com dataset grande, lstm so com dw=1
+# 1. deixar a correr com dataset grande, lstm com media ponderada
 
 import random
 import torch
@@ -76,20 +76,29 @@ class MyDataset(Dataset):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, device, num_layers=2):
+    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
         super(Encoder, self).__init__()
 
         self.input_size = input_size
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.device = device
+        self.batch_size = batch_size
         self.lstm = nn.LSTM(self.input_size, self.hidden_dim, num_layers=self.num_layers, dropout=0.2)
-        self.hidden = None
+        for name, param in self.lstm.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param,0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
+
+        self.hidden = None #(nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad = True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad=True)) #None
         self.output = None
         self.device = device
 
     def init_hidden(self, batch_size):
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
-                torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
+        #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
+        #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
+       return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
@@ -108,6 +117,11 @@ class Decoder(nn.Module):
         # input_size=1 since the output are single values
         #self.lstm = nn.LSTM(1, hidden_dim, num_layers=num_layers, dropout=0.2)
         self.out = nn.Linear(hidden_dim, 1)
+        for name,param in self.out.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param,0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
         self.device = device
 
     def forward(self, outputs, hidden, criterion):
@@ -139,7 +153,7 @@ class Decoder(nn.Module):
                 output = self.out(hidden[i,j,:])
                 loss += criterion(output.view(-1,1), outputs[j,i].view(-1,1))
                 preds.append(output)
-        return loss, preds
+        return loss, torch.cat(preds)
         #return loss, output
 
 class LSTMRegression(nn.Module):
@@ -186,7 +200,7 @@ class MyCollator(object):
                 y[i,j] = batch[n]['y']
                 n += 1
 
-        #X, y = np.array([data[i]['X'] for i in range(len(data))]), np.array([data[i]['y'] for i in range(len(data))])#data[0]['X'], data[0]['y']  #isto é com batch_size=1 #create_dataset(data, look_back=window_size)
+        #X, y = np.array([data[i]['X'] for i in range(len(data))]), np.array([data[i]['y'] for i in range(len(data))])#data[0]['X'], data[0]['y']  #isto e com batch_size=1 #create_dataset(data, look_back=window_size)
         return X, y #.float(),lengths.long()
 
 def set_seed(args,n_gpu):
@@ -392,7 +406,7 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1, seq
     print("Number of points in test dataset = " + str(len(test_dataset)))
     train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
     dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
-    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=MyCollator)
+    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
 
     return train_dataloader, dev_dataloader, test_dataloader
 
@@ -436,8 +450,6 @@ def main():
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
     train_dataloader, dev_dataloader, test_dataloader = load_input(path = json_file_path, window_size=window_size, discretization_unit=discretization_unit, seq_len=seq_len, batch_size=batch_size)
 
-    train_batch_size = 100
-    val_batch_size = 100
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
@@ -457,7 +469,7 @@ def main():
     # input has dimension (samples, time steps, features)
     # create and fit the LSTM network
     EMBEDDING_DIM = 768 #number of features in data points
-    HIDDEN_DIM = 64 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -485,7 +497,7 @@ def main():
         device = torch.device("cpu")
 
     #Create model
-    encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, device)
+    encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
     decoder = Decoder(HIDDEN_DIM, device)
 
     #Put models in gpu
@@ -496,7 +508,8 @@ def main():
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate)
 
-    # Check if saved optimizers exist
+    # Check if saved optimizers exist    
+    
     if os.path.isfile(os.path.join(args.model_name_or_path, "encoder_optimizer.pt")) and os.path.isfile(
         os.path.join(args.model_name_or_path, "decoder_optimizer.pt")
     ):
@@ -540,6 +553,10 @@ def main():
         print("  Continuing training from epoch %d", epochs_trained)
         print("  Continuing training from global step %d", global_step)
         print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
+        
+        #Load encoder and decoder states
+        encoder.load_state_dict(torch.load(args.model_name_or_path+"encoder.pth"))
+        decoder.load_state_dict(torch.load(args.model_name_or_path+"decoder.pth"))
 
     tr_loss, logging_loss = 0.0, 0.0
     n_eval = 1
@@ -569,7 +586,10 @@ def main():
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
         n_batch = 1
-   
+        
+        if encoder.hidden is None:
+            encoder.hidden = encoder.init_hidden(batch_size)
+
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
     
@@ -578,10 +598,10 @@ def main():
             decoder = decoder.train() 
 
             # Skip past any already trained steps if resuming training
-            if steps_trained_in_current_epoch > 0:
-                steps_trained_in_current_epoch -= 1
-                continue
-
+            #if steps_trained_in_current_epoch > 0:
+            #    steps_trained_in_current_epoch -= 1
+            #    continue
+            
             trainX_sample, trainY_sample = batch
             if trainX_sample.shape[0]==0:#no example
                 continue
@@ -608,8 +628,8 @@ def main():
 
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM
-            if step==0:
-                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            #if step==0:
+            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -742,7 +762,7 @@ def main():
 
     # Plot training loss (mse)
     plt.figure(figsize=(15,8))
-    plt.title("Training loss com batch size "+str(train_batch_size))
+    plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
     plt.xlabel("Batch")
     plt.ylabel("Loss")
     plt.plot(train_loss_set)
@@ -752,7 +772,7 @@ def main():
 
     # Plot validation loss (mse)
     plt.figure(figsize=(15,8))
-    plt.title("Validation loss with batch size "+str(val_batch_size))
+    plt.title("Validation loss with batch size "+str(batch_size)+" and sequence length "+str(seq_len))
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.plot([p[2] for p in val_loss_set], [p[0] for p in val_loss_set])
@@ -792,7 +812,7 @@ def main():
         best_model_dir = os.path.join(args.output_dir, "best_model/")
         if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
             #Create encoder and decoder models
-            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, device)
+            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
             best_decoder = Decoder(HIDDEN_DIM, device)
 
             #Put models in gpu
