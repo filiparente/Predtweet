@@ -87,6 +87,12 @@ class Encoder(nn.Module):
         self.lstm = nn.LSTM(self.input_size, self.hidden_dim, num_layers=self.num_layers, dropout=0.2)
         for name, param in self.lstm.named_parameters():
             if 'bias' in name:
+                nn.init.constant_(param, 0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
+        self.hidden = None
+        for name, param in self.lstm.named_parameters():
+            if 'bias' in name:
                 nn.init.constant_(param,0.0)
             elif 'weight' in name:
                 nn.init.xavier_normal_(param)
@@ -94,6 +100,7 @@ class Encoder(nn.Module):
         self.hidden = None #(nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad = True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad=True)) #None
         self.output = None
         self.device = device
+        self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(FloatTensor), requires_grad=True))
 
     def init_hidden(self, batch_size):
         #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
@@ -430,7 +437,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-    parser.add_argument("--logging_steps", type=int, default=300, help="Log every X updates steps.")
+    parser.add_argument("--logging_steps", type=int, default=30, help="Log every X updates steps.")
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
@@ -444,7 +451,7 @@ def main():
     seq_len = args.seq_len
     batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_cut_dataset.txt' 
+    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
