@@ -100,7 +100,7 @@ class Encoder(nn.Module):
         self.hidden = None #(nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad = True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad=True)) #None
         self.output = None
         self.device = device
-        self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(FloatTensor), requires_grad=True))
+        #self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True))
 
     def init_hidden(self, batch_size):
         #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
@@ -594,8 +594,7 @@ def main():
         nb_tr_examples, nb_tr_steps = 0, 0
         n_batch = 1
         
-        if encoder.hidden is None:
-            encoder.hidden = encoder.init_hidden(batch_size)
+        encoder.hidden = encoder.init_hidden(batch_size)
 
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
@@ -713,7 +712,7 @@ def main():
         
         #Evaluate at the end of the epoch
         if (step + 1) % args.gradient_accumulation_steps == 0:
-            if args.logging_steps>0 and args.num_train_epochs%args.logging_steps==0: 
+            if args.logging_steps>0 and epoch%args.logging_steps==0: 
                 print("Train loss : {}".format(tr_loss/nb_tr_steps))
                 logs={}
                     
