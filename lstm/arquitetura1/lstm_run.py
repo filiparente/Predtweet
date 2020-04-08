@@ -359,7 +359,7 @@ def main():
     discretization_unit = args.discretization_unit
     window_size = args.window_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_cut_dataset.txt' 
+    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.

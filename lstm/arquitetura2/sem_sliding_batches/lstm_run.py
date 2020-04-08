@@ -33,6 +33,7 @@ import torch.optim as optim
 from tqdm import tqdm, trange
 from sklearn.metrics import mean_squared_error
 from sklearn import preprocessing
+import pdb
 
 torch.manual_seed(1)
 
@@ -117,21 +118,29 @@ class Decoder(nn.Module):
         #input = input.unsqueeze(0)
 
         loss = 0
+        preds = []
         #for i in range(seq_len):
             # Push current input through LSTM: (seq_len=1, batch_size, input_size=1)
             #output, hidden = self.lstm(input, hidden)
             # Push the output of last step through linear layer; returns (batch_size, 1)
             #output = self.out(output[-1])
-        output = self.out(hidden)
+        #output = self.out(hidden)
             # Generate input for next step by adding seq_len dimension (see above)
             #input = output.unsqueeze(0)
             # Compute loss between predicted value and true value
-        if outputs.shape[1]!=1:
-            outputs = outputs.unsqueeze(0)
+        #if outputs.shape[1]!=1:
+        #    outputs = outputs.unsqueeze(0)
 
             #loss += criterion(output, outputs[:, i].view(-1,1))
-        loss = criterion(output.view(-1,1), outputs.view(-1,1))
-        return loss, output
+        #loss = criterion(output.view(-1,1), outputs.view(-1,1))
+
+        for i in range(seq_len):
+            for j in range(batch_size):
+                output = self.out(hidden[i,j,:])
+                loss += criterion(output.view(-1,1), outputs[j,i].view(-1,1))
+                preds.append(output)
+        return loss, preds
+        #return loss, output
 
 class LSTMRegression(nn.Module):
 
@@ -164,7 +173,7 @@ class MyCollator(object):
 
         X = np.zeros((batch_size, seq_len, n_features))
         y = np.zeros((batch_size, seq_len))
-        n = 1
+        n = 0
         for i in range(batch_size):
             for j in range(seq_len):
                 if n==len(batch): #exceeded dataset
@@ -209,6 +218,7 @@ def collate_fn(data):
     return X, y #.float(),lengths.long()
 
 def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, prefix="", store=True):
+    #pdb.set_trace()
     # Validation
     eval_output_dir = args.output_dir
     results = {} 
@@ -233,7 +243,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     n_batch = 1
 
     eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
-
+    
     for step, batch in enumerate(eval_iterator):
         # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
         encoder = encoder.eval()   
@@ -241,6 +251,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
         trainX_sample, trainY_sample = batch
         
+        if trainX_sample.shape[0]==0: #no example
+            continue
         if store:
             val_obs_seq.append(trainY_sample)
 
@@ -250,8 +262,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
         #if trainX_sample.shape[0] == 1:
         #    trainX_sample = trainX_sample.unsqueeze(0)
-        trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).unsqueeze(0).to(device)
-
+        trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
 
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
         trainX_sample = trainX_sample.transpose(1,0)
@@ -261,8 +272,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            if step==0:
-                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            #if step==0:
+            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -274,8 +285,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
             val_preds_seq.append(logits)
 
-            print("Logits " + str(logits))
-            print("Counts " + str(trainY_sample))
+            #print("Logits " + str(logits))
+            #print("Counts " + str(trainY_sample))
             eval_loss += tmp_eval_loss.mean().item()
         nb_eval_steps += 1
 
@@ -291,10 +302,10 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
     eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
-    preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
+    #preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
     
     #since we are doing regression, our metric will be the mse
-    result = {"mse":mean_squared_error(preds, out_label_ids)} #compute_metrics(eval_task, preds, out_label_ids)
+    result = {"mse":mean_squared_error(preds.ravel(), out_label_ids.ravel())} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
 
     output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
@@ -376,7 +387,9 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1, seq
     # with an iterator the entire dataset does not need to be loaded into memory
     
     my_collator = MyCollator(batch_size=batch_size, seq_len=seq_len)
-
+    print("Number of points in train dataset = " + str(len(train_dataset)))
+    print("Number of points in dev dataset = " + str(len(dev_dataset)))
+    print("Number of points in test dataset = " + str(len(test_dataset)))
     train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
     dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
     test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=MyCollator)
@@ -619,7 +632,7 @@ def main():
             train_loss_set.append(loss.item())
 
             if final_epoch:
-                train_preds_seq.append(preds)
+                train_preds_seq.append(preds.view(-1,1))
         
             # Update tracking variables
             tr_loss += loss.item()
