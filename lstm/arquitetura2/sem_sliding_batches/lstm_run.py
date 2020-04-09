@@ -431,13 +431,13 @@ def main():
     #parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     #parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
     #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
-    parser.add_argument("--model_name_or_path", default=r'/mnt/hdd_disk2/frente/finetuning_outputs/checkpoint-1', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
+    parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-250/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--num_train_epochs", default=50, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--num_train_epochs", default=100, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-    parser.add_argument("--logging_steps", type=int, default=30, help="Log every X updates steps.")
+    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X updates steps.")
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
@@ -451,7 +451,7 @@ def main():
     seq_len = args.seq_len
     batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
+    json_file_path = path+str(discretization_unit)+'.0/new_cut_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
@@ -547,6 +547,7 @@ def main():
     best_mse_eval = np.inf
     save_best = False
     final_epoch = False
+    first_eval = True
     best_val_preds_seq = []
 
     # Check if continuing training from a checkpoint
@@ -564,6 +565,19 @@ def main():
         #Load encoder and decoder states
         encoder.load_state_dict(torch.load(args.model_name_or_path+"encoder.pth"))
         decoder.load_state_dict(torch.load(args.model_name_or_path+"decoder.pth"))
+
+        if os.path.exists(os.path.join(args.output_dir, "best_model")):
+            if os.path.isfile(os.path.join(args.output_dir, "best_model/best_mse_eval.bin")):
+                #Load best_mse_eval
+                best_mse_eval = torch.load(args.output_dir+"best_model/best_mse_eval.bin")
+
+            if os.path.isfile(os.path.join(args.output_dir, "best_model/best_val_preds_seq.pt")):
+                #Load best_val_preds_seq
+                best_val_preds_seq = torch.load(args.output_dir+"best_model/best_val_preds_seq.pt")
+        if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
+            train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
+        if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
+            val_loss_set = torch.load(args.model_name_or_path+"val_loss_set.pt")
 
     tr_loss, logging_loss = 0.0, 0.0
     n_eval = 1
@@ -680,10 +694,12 @@ def main():
                 global_step += 1
                 #print("Global step nº: " + str(global_step))
 
-                if args.save_steps>0 and (global_step%args.save_steps==0 or save_best):
+                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or final_epoch):
                     # Save model checkpoint
                     if save_best:
                         output_dir = os.path.join(args.output_dir, "best_model")
+                        torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
+                        torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
                         save_best = False
                     else:
                         output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -695,6 +711,11 @@ def main():
                     torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
 
                     torch.save(args, os.path.join(output_dir, "training_args.bin"))
+
+                    if final_epoch: #save train_loss_set, val_loss_set
+                        torch.save(train_loss_set, output_dir+"/train_loss_set.pt")
+                        torch.save(val_loss_set, output_dir+"/val_loss_set.pt") 
+
                     print("Saving model checkpoint to %s", output_dir)
 
                     torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
@@ -722,8 +743,9 @@ def main():
                 logging_loss = tr_loss
 
                 if args.evaluate_during_training: 
-                    if global_step == args.logging_steps: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
+                    if first_eval: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
                         results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
+                        first_eval = False
                     else:
                         results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
                         
