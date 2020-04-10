@@ -1,6 +1,6 @@
 # 1. new_cut_dataset, num_train_epochs, deixar a correr com dataset grande, lstm com dw=3
-# 1. deixar a correr com dataset grande, lstm só com dw=1
-# 1. deixar a correr com dataset grande, lstm com média ponderada
+# 1. deixar a correr com dataset grande, lstm so com dw=1
+# 1. deixar a correr com dataset grande, lstm com media ponderada
 
 import random
 import torch
@@ -33,6 +33,7 @@ import torch.optim as optim
 from tqdm import tqdm, trange
 from sklearn.metrics import mean_squared_error
 from sklearn import preprocessing
+import pdb
 
 torch.manual_seed(1)
 
@@ -40,8 +41,23 @@ torch.manual_seed(1)
 np.random.seed(7)
 
 
+class DatasetSlidingBatches(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset 
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def  __getitem__(self, idx):
+        
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        #each feature is the average embedding in the current dt
+        return self.dataset['X'][idx], self.dataset['y'][idx]
+
 class MyDataset(Dataset):
-    def __init__(self, json_filename, window_size):
+    def __init__(self, json_filename, window_size, seq_len):
         self.json_filename = json_filename
         with open(self.json_filename, "r") as infile:
             self.data = json.load(infile) #json.loads(j.read())
@@ -51,17 +67,22 @@ class MyDataset(Dataset):
 
             infile.close()
         self.window_size = window_size
+        self.seq_len = seq_len
+        self.idx = 0
           
     def __len__(self):
         return len(self.dataset)
 
     def  __getitem__(self, idx):
+        
         if torch.is_tensor(idx):
             idx = idx.tolist()
         
         #each feature is a concatenation of the average embeddings of the previous windows
-        #X = [self.dataset[i]['X'] for i in range(idx,idx+self.window_size)] 
-        #sample = {'X': X, 'y': self.dataset[idx+self.window_size]['y'], 'window_size': self.window_size}
+        #X = [self.dataset[i]['X'] for i in range(self.idx,self.idx+self.seq_len)] 
+        #sample = {'X': X, 'y': self.dataset[self.idx:self.idx+self.seq_len]['y'], 'window_size': self.window_size}
+
+        #self.idx += self.seq_len
 
         #each feature is the average embedding in the current dt
         sample = {'X': [self.dataset[idx]['X']], 'y': self.dataset[idx]['y'], 'window_size': self.window_size}
@@ -70,23 +91,44 @@ class MyDataset(Dataset):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, device, num_layers=2):
+    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
         super(Encoder, self).__init__()
 
         self.input_size = input_size
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.device = device
+        self.batch_size = batch_size
         self.lstm = nn.LSTM(self.input_size, self.hidden_dim, num_layers=self.num_layers, dropout=0.2)
+        for name, param in self.lstm.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
         self.hidden = None
+        for name, param in self.lstm.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param,0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
+
+        self.hidden = None #(nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad = True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad=True)) #None
         self.output = None
         self.device = device
+        #self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True))
 
     def init_hidden(self, batch_size):
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
-                torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
+        #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
+        #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
+       return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
+        if inputs.shape[1] != self.hidden[0].shape[1]: #different batch sizes
+            tuple_aux = (self.hidden[0][:,:inputs.shape[1],:].contiguous(), self.hidden[1][:,:inputs.shape[1],:].contiguous())
+            self.hidden = None
+            self.hidden = tuple_aux #BECAUSE TUPLES ARE IMMUTABLE
+
         self.output, self.hidden = self.lstm(inputs, self.hidden)
         return self.output, self.hidden
 
@@ -97,31 +139,44 @@ class Decoder(nn.Module):
         # input_size=1 since the output are single values
         #self.lstm = nn.LSTM(1, hidden_dim, num_layers=num_layers, dropout=0.2)
         self.out = nn.Linear(hidden_dim, 1)
+        for name,param in self.out.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param,0.0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
         self.device = device
 
     def forward(self, outputs, hidden, criterion):
-        num_steps, batch_size = outputs.shape
+        batch_size, seq_len = outputs.shape
         # Create initial start value/token
         #input = torch.tensor([[0.0]] * batch_size, dtype=torch.float).to(self.device)
         # Convert (batch_size, output_size) to (seq_len, batch_size, output_size)
         #input = input.unsqueeze(0)
 
         loss = 0
-        for i in range(num_steps):
+        preds = []
+        #for i in range(seq_len):
             # Push current input through LSTM: (seq_len=1, batch_size, input_size=1)
             #output, hidden = self.lstm(input, hidden)
             # Push the output of last step through linear layer; returns (batch_size, 1)
             #output = self.out(output[-1])
-            output = self.out(hidden)
+        #output = self.out(hidden)
             # Generate input for next step by adding seq_len dimension (see above)
             #input = output.unsqueeze(0)
             # Compute loss between predicted value and true value
-            if outputs.shape[1]!=1:
-                outputs = outputs.unsqueeze(0)
+        #if outputs.shape[1]!=1:
+        #    outputs = outputs.unsqueeze(0)
 
             #loss += criterion(output, outputs[:, i].view(-1,1))
-            loss += criterion(output[0], outputs[:, i].view(-1,1))
-        return loss, output
+        #loss = criterion(output.view(-1,1), outputs.view(-1,1))
+
+        for i in range(seq_len):
+            for j in range(batch_size):
+                output = self.out(hidden[i,j,:])
+                loss += criterion(output.view(-1,1), outputs[j,i].view(-1,1))
+                preds.append(output)
+        return loss, torch.cat(preds)
+        #return loss, output
 
 class LSTMRegression(nn.Module):
 
@@ -141,6 +196,9 @@ class LSTMRegression(nn.Module):
         count = self.hidden2count(lstm_out)
         return count
 
+def collate_fn_(batch):
+    return batch[0]
+
 def set_seed(args,n_gpu):
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -149,26 +207,35 @@ def set_seed(args,n_gpu):
         torch.cuda.manual_seed_all(args.seed)
 
 # convert an array of values into a dataset matrix
-def create_dataset(dataset, look_back=1):
+def create_dataset(X,y, batch_size, seq_len):
     dataX, dataY = [], []
-    for i in range(len(dataset)-look_back):
-        a = [dataset[i:(i+look_back)][j]['X'] for j in range(look_back)]
-        dataX.append(a)
-        dataY.append(dataset[i + look_back]['y'])
+    idx = 0
+    auxX = np.zeros((batch_size, seq_len, 768))
+    auxY = np.zeros((batch_size, seq_len))
+    dataset = dict()
+    dataset['X'] = np.array([])
+    dataset['y'] = np.array([])
 
-    return np.array(dataX), np.array(dataY)
+    if len(X)>=batch_size*seq_len:
+        
+        while(1):
+            for i in range(batch_size):
+                auxX[i,:,:] = X[idx+i*seq_len:seq_len+idx+i*seq_len]
+                auxY[i,:] = y[idx+i*seq_len:seq_len+idx+i*seq_len]
+            
+            dataX.append(auxX)
+            dataY.append(auxY)
+            if seq_len+idx+i*seq_len == len(X):
+                break
+            idx=idx+1
 
-def collate_fn(data):
-    """
-       data: is a list of tuples with (example, label, length)
-             where 'example' is a tensor of arbitrary shape
-             and label/length are scalars
-    """
-    window_size = data[0]['window_size']
-    X, y = np.array([data[i]['X'] for i in range(len(data))]), np.array([data[i]['y'] for i in range(len(data))])#data[0]['X'], data[0]['y']  #isto é com batch_size=1 #create_dataset(data, look_back=window_size)
-    return X, y #.float(),lengths.long()
+        dataset['X'] = np.array(dataX)
+        dataset['y'] = np.array(dataY)
+
+    return dataset
 
 def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, prefix="", store=True):
+    #pdb.set_trace()
     # Validation
     eval_output_dir = args.output_dir
     results = {} 
@@ -193,14 +260,14 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     n_batch = 1
 
     eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
-
+    
     for step, batch in enumerate(eval_iterator):
         # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
         encoder = encoder.eval()   
         decoder = decoder.eval()      
 
         trainX_sample, trainY_sample = batch
-        
+        pdb.set_trace()
         if store:
             val_obs_seq.append(trainY_sample)
 
@@ -210,9 +277,9 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
         #if trainX_sample.shape[0] == 1:
         #    trainX_sample = trainX_sample.unsqueeze(0)
-        trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).unsqueeze(0).to(device)
-
-
+        trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
+        if trainX_sample.shape[0]==0: #no example
+            continue
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
         trainX_sample = trainX_sample.transpose(1,0)
 
@@ -220,7 +287,9 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         #scores = model(trainX_sample)
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
-            encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            # STATELESS LSTM:
+            if step==0:
+                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -232,8 +301,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
             val_preds_seq.append(logits)
 
-            print("Logits " + str(logits))
-            print("Counts " + str(trainY_sample))
+            #print("Logits " + str(logits))
+            #print("Counts " + str(trainY_sample))
             eval_loss += tmp_eval_loss.mean().item()
         nb_eval_steps += 1
 
@@ -249,10 +318,10 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
     eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
-    preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
-    
+    #preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
+    pdb.set_trace()
     #since we are doing regression, our metric will be the mse
-    result = {"mse":mean_squared_error(preds, out_label_ids)} #compute_metrics(eval_task, preds, out_label_ids)
+    result = {"mse":mean_squared_error(preds.ravel(), out_label_ids.ravel())} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
 
     output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
@@ -273,9 +342,9 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
     return results, val_obs_seq, val_preds_seq
 
-def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1):
+def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1, seq_len=100, batch_size=3):
     
-    dataset = MyDataset(path, window_size)
+    dataset = MyDataset(path, window_size, seq_len)
     length = len(dataset)
 
     # Use train_test_split to split our data into train and validation sets for training
@@ -296,6 +365,9 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1):
     dev_dataset = [dataset[i] for i in range(lengths[0]+window_size, lengths[1])]
     test_dataset = [dataset[i] for i in range(lengths[1]+window_size, lengths[2]- window_size)]
 
+    print("Number of points in train dataset = " + str(len(train_dataset)))
+    print("Number of points in dev dataset = " + str(len(dev_dataset)))
+    print("Number of points in test dataset = " + str(len(test_dataset)))
 
     # normalize the dataset
     #scaler = MinMaxScaler(feature_range=(0, 1))
@@ -321,20 +393,52 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1):
     X_test_scaled = scaler.transform(X_test)
     X_test_scaled = np.reshape(X_test_scaled, (num_instances, num_time_steps, num_features))
     
-    for i in range(len(train_dataset)):
-        train_dataset[i]['X'] = X_train_scaled[i]
 
-    for i in range(len(dev_dataset)):
-        dev_dataset[i]['X'] = X_dev_scaled[i]
+    #Perfect length to divide dataset
+    max_len_train = int(np.floor(len(train_dataset)/seq_len)*seq_len)
+    trainX = []
+    trainy = []
 
-    for i in range(len(test_dataset)):
-        test_dataset[i]['X'] = X_test_scaled[i]
+    for i in range(max_len_train):
+        #train_dataset[i]['X'] = X_train_scaled[i]
+        trainX.append(X_train_scaled[i])
+        trainy.append(train_dataset[i]['y'])
+    
+    #Perfect length to divide dataset
+    max_len_dev = int(np.floor(len(dev_dataset)/seq_len)*seq_len)
+    devX = []
+    devy = []
+
+    for i in range(max_len_dev):
+        devX.append(X_dev_scaled[i])
+        devy.append(dev_dataset[i]['y'])
+    
+    #Perfect length to divide dataset
+    max_len_test = int(np.floor(len(test_dataset)/seq_len)*seq_len)
+    testX = []
+    testy = []
+
+    for i in range(max_len_test):
+        testX.append(X_test_scaled[i])
+        testy.append(test_dataset[i]['y'])
+
+    train_dataset = create_dataset(trainX, trainy, batch_size, seq_len)
+    assert len(train_dataset['X'])>0, "Batch size or sequence length too big for training set with only " + str(max_len_train) +" samples"
+    dev_dataset = create_dataset(devX, devy, batch_size, seq_len)
+    assert len(dev_dataset['X'])>0, "Batch size or sequence length too big for validation set with only " + str(max_len_dev) +" samples"
+    test_dataset = create_dataset(testX, testy, batch_size, seq_len)
+    assert len(test_dataset['X'])>0, "Batch size or sequence length too big for test set with only " + str(max_len_test) +" samples"
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
     # with an iterator the entire dataset does not need to be loaded into memory
-    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=100, num_workers=1, collate_fn=collate_fn)
-    dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=100, num_workers=1, collate_fn=collate_fn)
-    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=100, num_workers=1, collate_fn=collate_fn)
+
+    print("Number of points in converted train dataset = " + str(len(train_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    print("Number of points in converted dev dataset = " + str(len(dev_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    print("Number of points in converted test dataset = " + str(len(test_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    
+    train_dataloader = DataLoader(DatasetSlidingBatches(train_dataset), sampler=SequentialSampler(train_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
+    dev_dataloader = DataLoader(DatasetSlidingBatches(dev_dataset), sampler=SequentialSampler(dev_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
+    test_dataloader = DataLoader(DatasetSlidingBatches(test_dataset), sampler=SequentialSampler(test_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
 
     return train_dataloader, dev_dataloader, test_dataloader
 
@@ -344,19 +448,21 @@ def main():
 
     parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
-    parser.add_argument('--window_size', type = int, default=3, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
+    parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
+    parser.add_argument('--seq_len', type = int, default=2, help='Input dimension (number of timestamps).')
+    parser.add_argument('--batch_size', type = int, default=3, help='How many batches of sequence length inputs per iteration.')
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
     #parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
     #parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
     #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
-    parser.add_argument("--model_name_or_path", default=r'/mnt/hdd_disk2/frente/finetuning_outputs/checkpoint-1', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
+    parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-1/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--num_train_epochs", default=50, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--num_train_epochs", default=100, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-    parser.add_argument("--logging_steps", type=int, default=300, help="Log every X updates steps.")
+    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X updates steps.")
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
@@ -367,15 +473,15 @@ def main():
     path = args.full_dataset_path
     discretization_unit = args.discretization_unit
     window_size = args.window_size
+    seq_len = args.seq_len
+    batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_dataset.txt' 
+    json_file_path = path+str(discretization_unit)+'new_cut_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
-    train_dataloader, dev_dataloader, test_dataloader = load_input(path = json_file_path, window_size=window_size, discretization_unit=discretization_unit)
+    train_dataloader, dev_dataloader, test_dataloader = load_input(path = json_file_path, window_size=window_size, discretization_unit=discretization_unit, seq_len=seq_len, batch_size=batch_size)
 
-    train_batch_size = 100
-    val_batch_size = 100
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
@@ -395,7 +501,7 @@ def main():
     # input has dimension (samples, time steps, features)
     # create and fit the LSTM network
     EMBEDDING_DIM = 768 #number of features in data points
-    HIDDEN_DIM = 64 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -423,7 +529,7 @@ def main():
         device = torch.device("cpu")
 
     #Create model
-    encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, device)
+    encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
     decoder = Decoder(HIDDEN_DIM, device)
 
     #Put models in gpu
@@ -434,7 +540,8 @@ def main():
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate)
 
-    # Check if saved optimizers exist
+    # Check if saved optimizers exist    
+    
     if os.path.isfile(os.path.join(args.model_name_or_path, "encoder_optimizer.pt")) and os.path.isfile(
         os.path.join(args.model_name_or_path, "decoder_optimizer.pt")
     ):
@@ -465,6 +572,7 @@ def main():
     best_mse_eval = np.inf
     save_best = False
     final_epoch = False
+    first_eval = True
     best_val_preds_seq = []
 
     # Check if continuing training from a checkpoint
@@ -478,6 +586,24 @@ def main():
         print("  Continuing training from epoch %d", epochs_trained)
         print("  Continuing training from global step %d", global_step)
         print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
+        
+        #Load encoder and decoder states
+        encoder.load_state_dict(torch.load(args.model_name_or_path+"encoder.pth"))
+        decoder.load_state_dict(torch.load(args.model_name_or_path+"decoder.pth"))
+
+        best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
+        if os.path.exists(best_model_dir+ "best_model/"):
+            if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
+                #Load best_mse_eval
+                best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval.bin")
+
+            if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq.pt"):
+                #Load best_val_preds_seq
+                best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq.pt")
+        if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
+            train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
+        if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
+            val_loss_set = torch.load(args.model_name_or_path+"val_loss_set.pt")
 
     tr_loss, logging_loss = 0.0, 0.0
     n_eval = 1
@@ -507,7 +633,9 @@ def main():
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
         n_batch = 1
-   
+        
+        encoder.hidden = encoder.init_hidden(batch_size)
+
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
     
@@ -516,12 +644,13 @@ def main():
             decoder = decoder.train() 
 
             # Skip past any already trained steps if resuming training
-            if steps_trained_in_current_epoch > 0:
-                steps_trained_in_current_epoch -= 1
-                continue
-
+            #if steps_trained_in_current_epoch > 0:
+            #    steps_trained_in_current_epoch -= 1
+            #    continue
+            
             trainX_sample, trainY_sample = batch
-
+            if trainX_sample.shape[0]==0:#no example
+                continue
             if final_epoch:
                 train_obs_seq.append(trainY_sample)
 
@@ -531,11 +660,11 @@ def main():
             trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
             #if trainX_sample.shape[0] == 1:
             #    trainX_sample = trainX_sample.unsqueeze(0)
-            trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).unsqueeze(0).to(device)
-
+            trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
+            
             # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
             trainX_sample = trainX_sample.transpose(1,0)
-
+            #print(trainY_sample)
             # Run our forward pass
             #scores = model(trainX_sample)
 
@@ -544,7 +673,9 @@ def main():
             decoder_optimizer.zero_grad()
 
             # Reset hidden state of encoder for current batch
-            encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            # STATELESS LSTM
+            #if step==0:
+            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -561,13 +692,14 @@ def main():
                 loss = loss / args.gradient_accumulation_steps
 
             # Backpropagation, compute gradients 
-            loss.backward()
+            loss.backward(retain_graph=True)
+            
 
             #Store 
             train_loss_set.append(loss.item())
 
             if final_epoch:
-                train_preds_seq.append(preds)
+                train_preds_seq.append(preds.view(-1,1))
         
             # Update tracking variables
             tr_loss += loss.item()
@@ -588,60 +720,30 @@ def main():
                 global_step += 1
                 #print("Global step nº: " + str(global_step))
 
-                if args.logging_steps>0 and global_step%args.logging_steps==0:
-                    print("Train loss : {}".format(tr_loss/nb_tr_steps))
-                    logs={}
-                    
-                    # DUVIDA: Pedir a zita para explicar isto
-                    loss_scalar = (tr_loss - logging_loss) / args.logging_steps
-                    logs["loss"] = str(loss_scalar)
-                    logging_loss = tr_loss
-
-                    if args.evaluate_during_training: 
-                        if global_step == args.logging_steps: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
-                            results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
-                        else:
-                            results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
-                        
-                        n_eval += 1
-                        for key, value in results.items():
-                            eval_key = "eval_{}".format(key)
-                            logs[eval_key] = str(value)
-
-                        if results["mse"] < best_mse_eval:
-                            save_best = True
-                            best_mse_eval = results["mse"]
-                            best_val_preds_seq = val_preds_seq
-                        
-                        
-                        #Store 
-                        val_loss_set.append((results["mse"], global_step, epoch)) 
-
-
-                    print(json.dumps({**logs, **{"step": str(global_step)}}))
-
-                if args.save_steps>0 and (global_step%args.save_steps==0 or save_best):
+                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
                     # Save model checkpoint
                     if save_best:
                         output_dir = os.path.join(args.output_dir, "best_model")
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
+                        torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
                         save_best = False
                     else:
                         output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
 
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
-                    #model_to_save = (
-                    #    encoder.module if hasattr(encoder, "module") else encoder
-                    #)  # Take care of distributed/parallel training
-                    #model_to_save.save(output_dir)
-                    #model_to_save = (
-                    #    decoder.module if hasattr(decoder, "module") else decoder
-                    #)  # Take care of distributed/parallel training
-                    #model_to_save.save(output_dir)
+
                     torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
                     torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
 
                     torch.save(args, os.path.join(output_dir, "training_args.bin"))
+
+                    if final_epoch: #save train_loss_set, val_loss_set
+                        torch.save(train_loss_set, output_dir+"/train_loss_set.pt")
+                        torch.save(val_loss_set, output_dir+"/val_loss_set.pt") 
+
                     print("Saving model checkpoint to %s", output_dir)
 
                     torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
@@ -656,6 +758,41 @@ def main():
                 #    print("Check if the classifier layer weights are being updated:") #logger.info
                 #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
                 #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
+        
+        #Evaluate at the end of the epoch
+        if (step + 1) % args.gradient_accumulation_steps == 0:
+            if args.logging_steps>0 and epoch%args.logging_steps==0: 
+                print("Train loss : {}".format(tr_loss/nb_tr_steps))
+                logs={}
+                    
+                # DUVIDA: Pedir a zita para explicar isto
+                loss_scalar = (tr_loss - logging_loss) / args.logging_steps
+                logs["loss"] = str(loss_scalar)
+                logging_loss = tr_loss
+
+                if args.evaluate_during_training: 
+                    if first_eval: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
+                        results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
+                        first_eval = False
+                    else:
+                        results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
+                        
+                    n_eval += 1
+                    for key, value in results.items():
+                        eval_key = "eval_{}".format(key)
+                        logs[eval_key] = str(value)
+
+                    if results["mse"] < best_mse_eval:
+                        save_best = True
+                        best_mse_eval = results["mse"]
+                        best_val_preds_seq = val_preds_seq
+                        
+                        
+                    #Store 
+                    val_loss_set.append((results["mse"], global_step, epoch)) 
+
+
+                    print(json.dumps({**logs, **{"step": str(global_step)}}))
 
 
             #print("Loss:", loss.item())
@@ -663,16 +800,20 @@ def main():
             #loss = loss_function(scores, trainY_sample)
             #loss.backward()
             #optimizer.step()
+            
+
             if args.max_steps > 0 and global_step > args.max_steps:
                     epoch_iterator.close()
                     break
+            
+        
         if args.max_steps > 0 and global_step > args.max_steps:
             train_iterator.close()
             break
 
     # Plot training loss (mse)
     plt.figure(figsize=(15,8))
-    plt.title("Training loss com batch size "+str(train_batch_size))
+    plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
     plt.xlabel("Batch")
     plt.ylabel("Loss")
     plt.plot(train_loss_set)
@@ -682,7 +823,7 @@ def main():
 
     # Plot validation loss (mse)
     plt.figure(figsize=(15,8))
-    plt.title("Validation loss with batch size "+str(val_batch_size))
+    plt.title("Validation loss with batch size "+str(batch_size)+" and sequence length "+str(seq_len))
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.plot([p[2] for p in val_loss_set], [p[0] for p in val_loss_set])
@@ -722,7 +863,7 @@ def main():
         best_model_dir = os.path.join(args.output_dir, "best_model/")
         if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
             #Create encoder and decoder models
-            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, device)
+            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
             best_decoder = Decoder(HIDDEN_DIM, device)
 
             #Put models in gpu
@@ -765,7 +906,6 @@ def main():
     
     print("Done!")
 	
-
 
 
 if __name__=='__main__':

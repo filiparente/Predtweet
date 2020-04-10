@@ -271,9 +271,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         decoder = decoder.eval()      
 
         trainX_sample, trainY_sample = batch
-        
-        if trainX_sample.shape[0]==0: #no example
-            continue
+     
         if store:
             val_obs_seq.append(trainY_sample)
 
@@ -284,7 +282,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         #if trainX_sample.shape[0] == 1:
         #    trainX_sample = trainX_sample.unsqueeze(0)
         trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
-
+        if trainX_sample.shape[0]==0: #no example
+            continue
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
         trainX_sample = trainX_sample.transpose(1,0)
 
@@ -324,7 +323,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
     #preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
-    
+
     #since we are doing regression, our metric will be the mse
     result = {"mse":mean_squared_error(preds.ravel(), out_label_ids.ravel())} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
@@ -476,7 +475,7 @@ def main():
     # input has dimension (samples, time steps, features)
     # create and fit the LSTM network
     EMBEDDING_DIM = 768 #number of features in data points
-    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 256 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -566,14 +565,15 @@ def main():
         encoder.load_state_dict(torch.load(args.model_name_or_path+"encoder.pth"))
         decoder.load_state_dict(torch.load(args.model_name_or_path+"decoder.pth"))
 
-        if os.path.exists(os.path.join(args.output_dir, "best_model")):
-            if os.path.isfile(os.path.join(args.output_dir, "best_model/best_mse_eval.bin")):
+        best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
+        if os.path.exists(best_model_dir+ "best_model/"):
+            if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
                 #Load best_mse_eval
-                best_mse_eval = torch.load(args.output_dir+"best_model/best_mse_eval.bin")
+                best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval.bin")
 
-            if os.path.isfile(os.path.join(args.output_dir, "best_model/best_val_preds_seq.pt")):
+            if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq.pt"):
                 #Load best_val_preds_seq
-                best_val_preds_seq = torch.load(args.output_dir+"best_model/best_val_preds_seq.pt")
+                best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq.pt")
         if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
             train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
         if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
@@ -694,10 +694,12 @@ def main():
                 global_step += 1
                 #print("Global step nº: " + str(global_step))
 
-                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or final_epoch):
+                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
                     # Save model checkpoint
                     if save_best:
                         output_dir = os.path.join(args.output_dir, "best_model")
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
                         torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
                         torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
                         save_best = False
@@ -878,7 +880,6 @@ def main():
     
     print("Done!")
 	
-
 
 
 if __name__=='__main__':
