@@ -459,7 +459,7 @@ def main():
     #Parser
     parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
 
-    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/", help="OS path to the folder where the embeddings are located.")
+    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/1.0/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
     parser.add_argument('--seq_len', type = int, default=2, help='Input dimension (number of timestamps).')
