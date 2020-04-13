@@ -46,7 +46,7 @@ class DatasetSlidingBatches(Dataset):
         self.dataset = dataset 
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.dataset['X'])
 
     def  __getitem__(self, idx):
         
@@ -54,7 +54,8 @@ class DatasetSlidingBatches(Dataset):
             idx = idx.tolist()
 
         #each feature is the average embedding in the current dt
-        return self.dataset['X'][idx], self.dataset['y'][idx]
+        #return self.dataset['X'][idx], self.dataset['y'][idx]
+        return self.dataset[idx]['X'], self.dataset[idx]['y']
 
 class MyDataset(Dataset):
     def __init__(self, json_filename, window_size, seq_len):
@@ -208,30 +209,38 @@ def set_seed(args,n_gpu):
 
 # convert an array of values into a dataset matrix
 def create_dataset(X,y, batch_size, seq_len):
-    dataX, dataY = [], []
+    #dataX, dataY = [], []
     idx = 0
-    auxX = np.zeros((batch_size, seq_len, 768))
-    auxY = np.zeros((batch_size, seq_len))
-    dataset = dict()
-    dataset['X'] = np.array([])
-    dataset['y'] = np.array([])
+    #auxX = np.zeros((batch_size, seq_len, 768))
+    #auxY = np.zeros((batch_size, seq_len))
+    #dataset = dict()
+    #dataset['X'] = np.array([])
+    #dataset['y'] = np.array([])
+    dataset = []
 
     if len(X)>=batch_size*seq_len:
         
         while(1):
+            auxX = np.zeros((batch_size, seq_len, 768))
+            auxY = np.zeros((batch_size, seq_len))
             for i in range(batch_size):
                 auxX[i,:,:] = X[idx+i*seq_len:seq_len+idx+i*seq_len]
                 auxY[i,:] = y[idx+i*seq_len:seq_len+idx+i*seq_len]
             
-            dataX.append(auxX)
-            dataY.append(auxY)
+            dataset.append({'X':np.array(auxX), 'y':np.array(auxY)})
+
+            #dataX.append(auxX)
+            #dataY.append(auxY)
             if seq_len+idx+i*seq_len == len(X):
                 break
             idx=idx+1
+            del auxX
+            del auxY
+            
 
-        dataset['X'] = np.array(dataX)
-        dataset['y'] = np.array(dataY)
-
+        #dataset['X'] = np.array(dataX)
+        #dataset['y'] = np.array(dataY)
+    
     return dataset
 
 def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, prefix="", store=True):
@@ -267,7 +276,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         decoder = decoder.eval()      
 
         trainX_sample, trainY_sample = batch
-        pdb.set_trace()
+        
         if store:
             val_obs_seq.append(trainY_sample)
 
@@ -278,7 +287,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         #if trainX_sample.shape[0] == 1:
         #    trainX_sample = trainX_sample.unsqueeze(0)
         trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
-        if trainX_sample.shape[0]==0: #no example
+        if trainX_sample.shape[0]==0 or step%(trainX_sample.shape[0]*trainX_sample.shape[1])!=0: #no example
             continue
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
         trainX_sample = trainX_sample.transpose(1,0)
@@ -288,11 +297,11 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            if step==0:
+            if encoder.hidden is None:
                 encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
-
+            
             # Do forward pass through encoder: get hidden state
-            #hidden = encoder(trainX_sample)    
+            #hidden = encoder(trainX_sample)
             output, hidden = encoder(trainX_sample)
             # Compute the loss
             # Do forward pass through decoder (decoder gets hidden state from encoder)
@@ -319,7 +328,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
     #preds = np.squeeze(preds) #because we are doing regression, otherwise it would be np.argmax(preds, axis=1)
-    pdb.set_trace()
+  
     #since we are doing regression, our metric will be the mse
     result = {"mse":mean_squared_error(preds.ravel(), out_label_ids.ravel())} #compute_metrics(eval_task, preds, out_label_ids)
     results.update(result)
@@ -423,22 +432,26 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1, seq
         testy.append(test_dataset[i]['y'])
 
     train_dataset = create_dataset(trainX, trainy, batch_size, seq_len)
-    assert len(train_dataset['X'])>0, "Batch size or sequence length too big for training set with only " + str(max_len_train) +" samples"
+    assert len(train_dataset)>0, "Batch size or sequence length too big for training set with only " + str(max_len_train) +" samples"
     dev_dataset = create_dataset(devX, devy, batch_size, seq_len)
-    assert len(dev_dataset['X'])>0, "Batch size or sequence length too big for validation set with only " + str(max_len_dev) +" samples"
+    assert len(dev_dataset)>0, "Batch size or sequence length too big for validation set with only " + str(max_len_dev) +" samples"
     test_dataset = create_dataset(testX, testy, batch_size, seq_len)
-    assert len(test_dataset['X'])>0, "Batch size or sequence length too big for test set with only " + str(max_len_test) +" samples"
+    assert len(test_dataset)>0, "Batch size or sequence length too big for test set with only " + str(max_len_test) +" samples"
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
     # with an iterator the entire dataset does not need to be loaded into memory
 
-    print("Number of points in converted train dataset = " + str(len(train_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
-    print("Number of points in converted dev dataset = " + str(len(dev_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
-    print("Number of points in converted test dataset = " + str(len(test_dataset['X']))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    print("Number of points in converted train dataset = " + str(len(train_dataset))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    print("Number of points in converted dev dataset = " + str(len(dev_dataset))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
+    print("Number of points in converted test dataset = " + str(len(test_dataset))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
     
-    train_dataloader = DataLoader(DatasetSlidingBatches(train_dataset), sampler=SequentialSampler(train_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
-    dev_dataloader = DataLoader(DatasetSlidingBatches(dev_dataset), sampler=SequentialSampler(dev_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
-    test_dataloader = DataLoader(DatasetSlidingBatches(test_dataset), sampler=SequentialSampler(test_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
+    train_dataset2 = DatasetSlidingBatches(train_dataset)
+    dev_dataset2 = DatasetSlidingBatches(dev_dataset)
+    test_dataset2 = DatasetSlidingBatches(test_dataset)
+
+    train_dataloader = DataLoader(train_dataset2, sampler=SequentialSampler(train_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
+    dev_dataloader = DataLoader(dev_dataset2, sampler=SequentialSampler(dev_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
+    test_dataloader = DataLoader(test_dataset2, sampler=SequentialSampler(test_dataset), batch_size=1, num_workers=1, collate_fn=collate_fn_)
 
     return train_dataloader, dev_dataloader, test_dataloader
 
@@ -476,7 +489,7 @@ def main():
     seq_len = args.seq_len
     batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'new_cut_dataset.txt' 
+    json_file_path = path+'new_cut_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
@@ -628,14 +641,14 @@ def main():
 
 
         epoch_iterator = tqdm(train_dataloader, desc="Iteration") 
-
+        
         # Tracking variables
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
         n_batch = 1
         
         encoder.hidden = encoder.init_hidden(batch_size)
-
+        
         # Train the data for one epoch
         for step, batch in enumerate(epoch_iterator):  
     
@@ -648,14 +661,17 @@ def main():
             #    steps_trained_in_current_epoch -= 1
             #    continue
             
+            
             trainX_sample, trainY_sample = batch
             if trainX_sample.shape[0]==0:#no example
                 continue
             if final_epoch:
-                train_obs_seq.append(trainY_sample)
+                if step%(batch_size*seq_len)==0:
+                    train_obs_seq.append(trainY_sample)
 
             n_batch += 1
 
+            
             # Get our inputs ready for the network, that is, turn them into tensors
             trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
             #if trainX_sample.shape[0] == 1:
@@ -696,10 +712,12 @@ def main():
             
 
             #Store 
-            train_loss_set.append(loss.item())
+            if step%(batch_size*seq_len)==0:
+                train_loss_set.append(loss.item())
 
             if final_epoch:
-                train_preds_seq.append(preds.view(-1,1))
+                if step%(batch_size*seq_len)==0:
+                    train_preds_seq.append(preds.view(-1,1))
         
             # Update tracking variables
             tr_loss += loss.item()
@@ -789,7 +807,8 @@ def main():
                         
                         
                     #Store 
-                    val_loss_set.append((results["mse"], global_step, epoch)) 
+                    if step%(batch_size*seq_len)==0:
+                        val_loss_set.append((results["mse"], global_step, epoch)) 
 
 
                     print(json.dumps({**logs, **{"step": str(global_step)}}))
