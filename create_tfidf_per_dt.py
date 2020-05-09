@@ -110,10 +110,10 @@ class NewTfidfVectorizer(TfidfVectorizer):
             self._tfidf.n_sent_per_doc =  1
 
         X = super().fit_transform(raw_documents)
-        self._tfidf.fit(X)
+        #self._tfidf.fit(X)
         # X is already a transformed view of raw_documents so
         # we set copy to False
-        return self._tfidf.transform(X, copy=False)
+        return X#self._tfidf.transform(X, copy=False)
 
     def transform(self, raw_documents, copy="deprecated"):
         """Transform documents to document-term matrix.
@@ -162,7 +162,7 @@ class NewTfidfVectorizer(TfidfVectorizer):
             self._tfidf.n_sent_per_doc =  None
 
         X = super().transform(raw_documents)
-        return self._tfidf.transform(X, copy=False)
+        return X#self._tfidf.transform(X, copy=False)
 
 class TweetBatch():
     def __init__(self, discretization_unit, window_size):
@@ -570,18 +570,7 @@ def get_corpus(corpus, mode):
     
     return corpus
 
-def main():
-    parser = argparse.ArgumentParser(description='Create tf idfs of a tweet dataset to be used as embeddings.')
-    
-    parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
-    parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
-    parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
-    parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
-    parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
-
-    args = parser.parse_args()
-    print(args) 
+def main(args):
 
     output_dir = args.output_dir
     csv_path = args.csv_path
@@ -709,7 +698,7 @@ def main():
         dev_corpus = dev_tweets
         test_corpus = test_tweets
         
-        tfidf = NewTfidfVectorizer(max_features=100000)
+        tfidf = NewTfidfVectorizer(max_features=args.max_features)
         #train_corpus, dev_corpus, test_corpus = zip(*corpus)
 
         #train_corpus = get_corpus(train_corpus, 'train')
@@ -792,5 +781,16 @@ def main():
     pr.print_stats(sort='time')
 
 if __name__=="__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Create tf idfs of a tweet dataset to be used as embeddings.')
+    
+    parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
+    parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
+    parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
+    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
+    parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
+    parser.add_argument('--max_features', default=100000, help="Maximum number of features to consider in the TfIdfVectorizer.")
+    args = parser.parse_args()
+    print(args) 
+    main(args)
 

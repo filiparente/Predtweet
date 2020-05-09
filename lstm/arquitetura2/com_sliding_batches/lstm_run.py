@@ -479,7 +479,7 @@ def main():
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
-    parser.add_argument("--evaluate_only", action="store_false", help="Run only evaluation on validation and test sets with the best model found in training.")
+    parser.add_argument("--evaluate_only", action="store_true", help="Run only evaluation on validation and test sets with the best model found in training.")
     
     args = parser.parse_args()
     print(args)
@@ -749,6 +749,7 @@ def main():
                                 os.makedirs(output_dir)
                             torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
                             torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
+                            torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
                             save_best = False
                         else:
                             output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -807,7 +808,7 @@ def main():
                             save_best = True
                             best_mse_eval = results["mse"]
                             best_val_preds_seq = val_preds_seq
-                            
+                            best_val_hidden_states = encoder.hidden
                             
                         #Store 
                         if step%(batch_size*seq_len)==0:
@@ -896,6 +897,8 @@ def main():
             #Load encoder and decoder states
             best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
             best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
+
+            best_encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt")
              
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
 
