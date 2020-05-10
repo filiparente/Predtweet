@@ -382,7 +382,11 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
 
             # For all tweets
             for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
-                tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet])
+                if cleaning:
+                    tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet])
+                else:
+                    tweet_time = pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern')
+
                 if n_chunks == 1 and enter:
                     prev_date = tweet_time
                     next_date = prev_date+delta
@@ -391,9 +395,10 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
 
 
                 n_tot_sent += 1
-                sentence = df_chunk['text'][tweet] #sentence/tweet to encode
-                    
+                   
                 if cleaning:
+                    sentence = df_chunk['text'][tweet] #sentence/tweet to encode
+                 
                     if isinstance(sentence, str):
                         try:
                             _, _, details = cld2.detect(sentence)#detect(sentence)
@@ -410,6 +415,8 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                             if not len(sentence)>0:
                                 continue
                             writer.writerow({'Tweet_time': str(tweet_time.value), 'Text': sentence})
+                else:
+                    sentence = df_chunk['Text'][tweet]
 
                 #tweet_times.append(tweet_time.value)  
                 if tweet_time>next_date: 
@@ -458,7 +465,8 @@ def load_data(path, chunks=False):
     chunksize = 500000
 
     if chunks:
-        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
+                                        #';'
+        df = pd.read_csv(path, delimiter=',',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
     else:
         nRowsRead = None # specify 'None' if want to read whole file
         df = pd.read_csv(path, delimiter=';', nrows = nRowsRead)#, parse_dates=['timestamp'], index_col=['timestamp'])
@@ -786,7 +794,7 @@ if __name__=="__main__":
     parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
     parser.add_argument('--max_features', default=100000, help="Maximum number of features to consider in the TfIdfVectorizer.")
