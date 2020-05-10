@@ -751,6 +751,7 @@ def main():
                                 os.makedirs(output_dir)
                             torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
                             torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
+                            torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
                             save_best = False
                         else:
                             output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -809,7 +810,7 @@ def main():
                             save_best = True
                             best_mse_eval = results["mse"]
                             best_val_preds_seq = val_preds_seq
-                            
+                            best_val_hidden_states = encoder.hidden
                             
                         #Store 
                         if step%(batch_size*seq_len)==0:
@@ -898,9 +899,13 @@ def main():
             #Load encoder and decoder states
             best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
             best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-            global_step = 0
-            epoch = 0
+
+            #global_step = 0
+
+            #epoch = 0
  
+            best_encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt")
+             
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
             
             logs = {}
