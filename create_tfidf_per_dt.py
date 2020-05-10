@@ -22,6 +22,7 @@ import pickle
 import scipy
 from scipy.io import savemat
 import csv
+import pdb
 
 #from pyTweetCleaner import TweetCleaner
 from preprocess import twokenize
@@ -94,6 +95,7 @@ class NewTfidfVectorizer(TfidfVectorizer):
         X : sparse matrix, [n_samples, n_features]
             Tf-idf-weighted document-term matrix.
         """
+        pdb.set_trace()
         self._check_params()
 
         #check if input is a list of lists (documents are multiple text sentences instead of single text sentences)
@@ -350,6 +352,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     delta = timedelta(hours=args.discretization_unit)
     delta2 = timedelta(hours=args.window_size*args.discretization_unit)
 
+    pdb.set_trace()
     if cleaning:
         f = open(args.csv_path+'cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
         fields=['Tweet_time','Text']
@@ -458,7 +461,7 @@ def load_data(path, chunks=False):
     chunksize = 500000
 
     if chunks:
-        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
+        df = pd.read_csv(path, delimiter=',',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
     else:
         nRowsRead = None # specify 'None' if want to read whole file
         df = pd.read_csv(path, delimiter=';', nrows = nRowsRead)#, parse_dates=['timestamp'], index_col=['timestamp'])

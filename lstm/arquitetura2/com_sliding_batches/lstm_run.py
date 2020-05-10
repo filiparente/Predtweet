@@ -119,9 +119,9 @@ class Encoder(nn.Module):
         #self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True))
 
     def init_hidden(self, batch_size):
-        #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
-        #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
-       return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
+        return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
+                torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
+       #return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
@@ -276,9 +276,6 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         decoder = decoder.eval()      
 
         trainX_sample, trainY_sample = batch
-        
-        if store:
-            val_obs_seq.append(trainY_sample)
 
         n_batch += 1
 
@@ -289,6 +286,11 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
         if trainX_sample.shape[0]==0 or step%(trainX_sample.shape[0]*trainX_sample.shape[1])!=0: #no example
             continue
+        
+        
+        if store:
+           val_obs_seq.append(trainY_sample)
+        
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
         trainX_sample = trainX_sample.transpose(1,0)
 
@@ -430,7 +432,7 @@ def load_input(path = "bitcoin_data/", window_size=3, discretization_unit=1, seq
     for i in range(max_len_test):
         testX.append(X_test_scaled[i])
         testy.append(test_dataset[i]['y'])
-
+    
     train_dataset = create_dataset(trainX, trainy, batch_size, seq_len)
     assert len(train_dataset)>0, "Batch size or sequence length too big for training set with only " + str(max_len_train) +" samples"
     dev_dataset = create_dataset(devX, devy, batch_size, seq_len)
@@ -479,7 +481,7 @@ def main():
     parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
     parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
-    parser.add_argument("--evaluate_only", action="store_false", help="Run only evaluation on validation and test sets with the best model found in training.")
+    parser.add_argument("--evaluate_only", action="store_true", help="Run only evaluation on validation and test sets with the best model found in training.")
     
     args = parser.parse_args()
     print(args)
@@ -650,11 +652,11 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             n_batch = 1
             
-            encoder.hidden = encoder.init_hidden(batch_size)
+            #encoder.hidden = encoder.init_hidden(batch_size)
             
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator):  
-        
+                encoder.hidden = encoder.init_hidden(batch_size)
                 # Set our model to training mode (as opposed to evaluation mode)
                 encoder = encoder.train()
                 decoder = decoder.train() 
@@ -896,32 +898,43 @@ def main():
             #Load encoder and decoder states
             best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
             best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-             
+            global_step = 0
+            epoch = 0
+ 
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
-
+            
+            logs = {}
             for key, value in results.items():
                 eval_key = "eval_{}".format(key)
                 logs[eval_key] = str(value)
 
-            if args.evalute_only:
-                results, val_obs_seq, val_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
+            if args.evaluate_only:
+                results, val_obs_seq, val_preds_seq = evaluate(args, best_encoder, best_decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = 'Val', store=True)          
 
                 for key, value in results.items():
                     eval_key = "eval_{}".format(key)
                     logs[eval_key] = str(value)
 
+                plt.figure(figsize=(15,8))
+                plt.title("Val observation sequence: real and predicted")
+                plt.xlabel("Sample")
+                plt.ylabel("Count")
+                obs_plot, = plt.plot(torch.cat(val_obs_seq).detach().cpu().numpy().ravel().tolist(), color='blue', label='Val observation sequence (real)')
+                pred_plot, = plt.plot(torch.cat(val_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Val observation sequence (predicted)')
+                plt.legend(handles=[obs_plot, pred_plot])
+                plt.savefig(os.path.join(args.output_dir)+'val_obs_preds_seq2.png', bbox_inches='tight')
 
-    # Plot true observations and predictions in the test set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
-    plt.figure(figsize=(15,8))
-    plt.title("Test observation sequence: real and predicted")
-    plt.xlabel("Sample")
-    plt.ylabel("Count")
-    obs_plot, = plt.plot(np.concatenate(test_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
-    pred_plot, = plt.plot(torch.cat(test_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
-    plt.legend(handles=[obs_plot, pred_plot])
-    #plt.show()
+        # Plot true observations and predictions in the test set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
+        plt.figure(figsize=(15,8))
+        plt.title("Test observation sequence: real and predicted")
+        plt.xlabel("Sample")
+        plt.ylabel("Count")
+        obs_plot, = plt.plot(torch.cat(test_obs_seq).detach().cpu().numpy().ravel().tolist(), color='blue', label='Train observation sequence (real)')
+        pred_plot, = plt.plot(torch.cat(test_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+        plt.legend(handles=[obs_plot, pred_plot])
+        #plt.show()
 
-    plt.savefig(os.path.join(args.output_dir)+'test_obs_preds_seq.png', bbox_inches='tight')
+        plt.savefig(os.path.join(args.output_dir)+'test_obs_preds_seq2.png', bbox_inches='tight')
 
     # See what the scores are after training
     #with torch.no_grad():

@@ -76,7 +76,7 @@ class MyDataset(Dataset):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
+    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=2):
         super(Encoder, self).__init__()
 
         self.input_size = input_size
@@ -292,7 +292,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            if step==0:
+            if encoder.hidden is None: #step==0:
                 encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
@@ -420,7 +420,7 @@ def main():
     #Parser
     parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
 
-    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/", help="OS path to the folder where the embeddings are located.")
+    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/1.0/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
     parser.add_argument('--seq_len', type = int, default=10, help='Input dimension (number of timestamps).')
@@ -450,7 +450,7 @@ def main():
     seq_len = args.seq_len
     batch_size = args.batch_size
 
-    json_file_path = path+str(discretization_unit)+'.0/new_cut_dataset.txt' 
+    json_file_path = path+'new_cut_dataset.txt' 
 
     #load the dataset: timestamps and input ids (which correspond to the tweets already tokenized using BertTokenizerFast)
     #each chunk is read as a different dataset, and in the end all datasets are concatenated. A sequential sampler is defined.
@@ -475,7 +475,7 @@ def main():
     # input has dimension (samples, time steps, features)
     # create and fit the LSTM network
     EMBEDDING_DIM = 768 #number of features in data points
-    HIDDEN_DIM = 256 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -702,6 +702,7 @@ def main():
                             os.makedirs(output_dir)
                         torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
                         torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
+                        torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
                         save_best = False
                     else:
                         output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -760,7 +761,7 @@ def main():
                         save_best = True
                         best_mse_eval = results["mse"]
                         best_val_preds_seq = val_preds_seq
-                        
+                        best_val_hidden_states = encoder.hidden
                         
                     #Store 
                     val_loss_set.append((results["mse"], global_step, epoch)) 
@@ -848,7 +849,7 @@ def main():
             #Load encoder and decoder states
             best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
             best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-             
+            encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
 
             for key, value in results.items():
