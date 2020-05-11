@@ -95,7 +95,7 @@ class NewTfidfVectorizer(TfidfVectorizer):
         X : sparse matrix, [n_samples, n_features]
             Tf-idf-weighted document-term matrix.
         """
-        pdb.set_trace()
+        
         self._check_params()
 
         #check if input is a list of lists (documents are multiple text sentences instead of single text sentences)
@@ -213,8 +213,9 @@ class TweetBatch():
                 self.n_ex += 1
                 if self.n_ex == self.dataset['window_size']+1:
                     #self.sliding_window(writer)
+                     
                     tfidf, count = self.sliding_window()
-                    self.X.append(tfidf)
+                    self.X = scipy.sparse.vstack([self.X, tfidf])#self.X.append(tfidf)
                     self.y.append(count)
                     self.n_ex -= 1
                 continue
@@ -299,10 +300,14 @@ class TweetBatch():
                 start = self.dataset['input_ids'][idx]
         
                 X = np.zeros(np.shape(self.dataset['input_ids'][0]['avg_emb']))
-                for i in range(1,1+window_size):
-                     X += wi[i-1]*self.dataset['input_ids'][idx-i]['avg_emb']
+                if window_size==0 and length==1:
+                    X = self.dataset['input_ids'][0]['avg_emb']
+                    break
+                else:
+                    for i in range(1,1+window_size):
+                         X += wi[i-1]*self.dataset['input_ids'][idx-i]['avg_emb']
 
-                idx += 1
+                    idx += 1
             
             self.dataset['input_ids'] = self.dataset['input_ids'][len(X):]
             #del dataset
@@ -341,7 +346,7 @@ def weights(k,tau,timedif):
     return weight_vector
 
 def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args):
-    #tweet_times = []
+    tweet_times = []
     train_tweet_times = []
     dev_tweet_times = []
     test_tweet_times = []
@@ -352,7 +357,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     delta = timedelta(hours=args.discretization_unit)
     delta2 = timedelta(hours=args.window_size*args.discretization_unit)
 
-    pdb.set_trace()
+    
     if cleaning:
         f = open(args.csv_path+'cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
         fields=['Tweet_time','Text']
@@ -363,10 +368,12 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
         #writer.writerow(fields)
 
     enter =  True
+    n=0
     for df_chunk in df:
         print("Processing chunk n " + str(n_chunks+1))
         n_chunks += 1
-        
+
+
         # Assert that the chunk is chronologically ordered
         #print("Checking if the chunk is chronologically ordered...")
         #df_chunk['timestamp'] = pd.to_datetime(df_chunk['timestamp'], errors='ignore')
@@ -385,10 +392,11 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
 
             # For all tweets
             for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
+                
                 if cleaning:
                     tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet])
                 else:
-                    tweet_time = pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern')
+                    tweet_time = pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern', ambiguous=True)
 
                 if n_chunks == 1 and enter:
                     prev_date = tweet_time
@@ -420,35 +428,50 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                             writer.writerow({'Tweet_time': str(tweet_time.value), 'Text': sentence})
                 else:
                     sentence = df_chunk['Text'][tweet]
+                    tweet_times.append(tweet_time)
 
-                #tweet_times.append(tweet_time.value)  
+                #if tweet_time<train_split_date:
+                #    train_tweet_times.append(tweet_time.value)
+                #elif tweet_time>=train_split_date+delta2 and tweet_time<dev_split_date:
+                #    dev_tweet_times.append(tweet_time.value)
+                #elif tweet_time>=dev_split_date+delta2:
+                #    test_tweet_times.append(tweet_time.value)
+  
                 if tweet_time>next_date: 
                     #return_value = sentences
                     #sentences = []
 
                     #prev_date = next_date
                     #next_date = prev_date+delta
-
-                    if tweet_time < train_split_date:
-                        #yield return_value,[_],[_]
-                        train_tweet_times.append(tweet_time.value)
-                        train_tweets.append(sentences)
-                    elif tweet_time >= train_split_date+delta2 and tweet_time < dev_split_date:
-                        #yield [_],return_value,[_]
-                        dev_tweet_times.append(tweet_time.value)
-                        dev_tweets.append(sentences)
-                    elif tweet_time>= dev_split_date+delta2:
-                        #yield [_],[_],return_value
-                        test_tweet_times.append(tweet_time.value)
-                        test_tweets.append(sentences)
                     
+                    if n<train_split_date:#tweet_time<train_split_date:
+                        #yield return_value,[_],[_]
+                        #train_tweet_times.append(tweet_time.value)
+                        
+                        train_tweets.append(sentences)
+                        #assert len(train_tweet_times)==sum([len(train_tweets_dt) for train_tweets_dt in train_tweets]), "error length training"
+                        n+=1
+                    elif n>=train_split_date+args.window_size and n<dev_split_date:#tweet_time>=train_split_date+delta2 and tweet_time < dev_split_date:                                #yield [_],return_value,[_]
+                        #dev_tweet_times.append(tweet_time.value)
+                        dev_tweets.append(sentences)
+                        n+=1
+                    elif n>=dev_split_date+args.window_size:#tweet_time>=dev_split_date+delta2:#n>=dev_split_date+args.window_size:
+                        #yield [_],[_],return_value
+                        #test_tweet_times.append(tweet_time.value)
+                        test_tweets.append(sentences)
+                        n+=1
                     sentences = []
 
                     prev_date = next_date
                     next_date = prev_date+delta
                 
                 sentences.append(sentence)
-                
+                #if tweet_time<train_split_date:
+                #    train_tweet_times.append(tweet_time.value)
+                #elif tweet_time>=train_split_date+delta2 and tweet_time<dev_split_date:
+                #    dev_tweet_times.append(tweet_time.value)
+                #elif tweet_time>=dev_split_date+delta2:
+                #    test_tweet_times.append(tweet_time.value) 
         #return tweet_times, n_en_sent, n_tot_sent 
     if cleaning:
         print(tweet_time)
@@ -456,6 +479,15 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
         print(dev_split_date)
         
         f.close()
+    
+    pdb.set_trace()
+    n_ex_train = sum([len(t) for t in train_tweets])
+    n_ex_dev = sum([len(t) for t in dev_tweets])
+    n_ex_test = sum([len(t) for t in test_tweets])
+    train_tweet_times = tweet_times[0:n_ex_train]
+    dev_tweet_times = tweet_times[n_ex_train+1+args.window_size:n_ex_train+1+args.window_size+n_ex_dev]
+    test_tweet_times = tweet_times[n_ex_train+1+args.window_size+n_ex_dev+1:n_ex_train+1+args.window_size+n_ex_dev+1+n_ex_test]
+
     return train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets
 
           
@@ -673,7 +705,7 @@ def main(args):
                 infile.close()
 
         print("Start date is "+str(start_date) + " and end date is "+ str(end_date) +".")
-
+        
         time_delta = end_date-start_date
 
         #Total number of dt's
@@ -681,9 +713,9 @@ def main(args):
         percentages = [0.8, 0.1, 0.1]
         split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
-        train_split_date = (start_date+datetime.timedelta(hours = split_idx[0])).tz_localize('US/Eastern')
-        dev_split_date = (start_date+datetime.timedelta(hours = split_idx[1])).tz_localize('US/Eastern')
-        test_split_date = (start_date+datetime.timedelta(hours = split_idx[2])).tz_localize('US/Eastern')
+        train_split_date = int(split_idx[0])#(start_date+datetime.timedelta(hours=split_idx[0])).tz_localize('US/Eastern')
+        dev_split_date = int(split_idx[1])#(start_date+datetime.timedelta(hours = split_idx[1])).tz_localize('US/Eastern')
+        test_split_date = int(split_idx[2])#(start_date+datetime.timedelta(hours = split_idx[2])).tz_localize('US/Eastern')
 
         n_chunks = 0
         n_en_sent = 0
@@ -697,6 +729,8 @@ def main(args):
         #corpus = 
         train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets = ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args)
         
+        
+        pdb.set_trace()
         with open(os.path.join(output_dir, "train_tweet_times.txt"), "wb") as fp:   #Pickling
             pickle.dump(train_tweet_times, fp)
         with open(os.path.join(output_dir, "dev_tweet_times.txt"), "wb") as fp:   #Pickling
@@ -749,14 +783,12 @@ def main(args):
     else:
         #Load tf-ids (features)
         #sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tf_idf2.npz")
-
+        pdb.set_trace()
         modes = ['dev', 'test', 'train']
         for mode in modes:   
             #Load tf-idfs (features)
             sparse_matrix = scipy.sparse.load_npz(os.path.join(output_dir, mode + "_tfidf.npz"))
-            
-            #Load the corresponding times
-            with open(os.path.join(output_dir, mode + "_tweet_times.txt"), "rb") as fp:   # Unpickling
+            with open(os.path.join(output_dir, mode+"_tweet_times.txt"),"rb") as fp:
                 tweet_times = pickle.load(fp)
 
             if isinstance(args.window_size, str):
@@ -774,7 +806,7 @@ def main(args):
             tweet_batch.discretize_batch(tweet_times, sparse_matrix, 1, 1)
             
             #Store dataset    
-            path = "{}{}{}{}{}".format(output_dir,'\\', args.discretization_unit, ".", args.window_size)
+            path = "{}{}{}{}".format(output_dir, args.discretization_unit, '.', args.window_size)#"{}{}{}{}{}".format(output_dir,'\\', args.discretization_unit, ".", args.window_size)
             os.makedirs(path, exist_ok=True)
             # Save txt file in old format
             #with open(path +"\\"+ mode +"_dataset.txt", "w") as f:
@@ -782,7 +814,7 @@ def main(args):
             #    f.close()
 
             #Save matlab file 
-            with open(path +"\\"+ mode +"_dataset.mat", 'wb') as f:
+            with open(path +'/'+mode+"_dataset.mat",'wb') as f:#"\\"+ mode +"_dataset.mat", 'wb') as f:
                 savemat(f, {'start_date': tweet_times[0], 'end_date': tweet_times[-1], 'disc_unit': discretization_unit, 'window_size': window_size, 'X': tweet_batch.X, 'y': tweet_batch.y})
                 f.close()
 
@@ -796,7 +828,7 @@ if __name__=="__main__":
     parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
-    parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
+    parser.add_argument('--create', action="store_true", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
     parser.add_argument('--max_features', default=100000, help="Maximum number of features to consider in the TfIdfVectorizer.")
