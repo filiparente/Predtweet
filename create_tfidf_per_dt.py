@@ -733,7 +733,7 @@ def main(args):
         train_tweet_times, train_tweets, dev_tweet_times, dev_tweets, test_tweet_times, test_tweets = ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, train_split_date, dev_split_date, test_split_date, args)
         
         
-        pdb.set_trace()
+        
         with open(os.path.join(output_dir, "train_tweet_times.txt"), "wb") as fp:   #Pickling
             pickle.dump(train_tweet_times, fp)
         with open(os.path.join(output_dir, "dev_tweet_times.txt"), "wb") as fp:   #Pickling
@@ -786,7 +786,7 @@ def main(args):
     else:
         #Load tf-ids (features)
         #sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tf_idf2.npz")
-        pdb.set_trace()
+        
         modes = ['dev', 'test', 'train']
         for mode in modes:   
             #Load tf-idfs (features)

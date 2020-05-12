@@ -26,7 +26,7 @@ parser.add_argument('--max_features', default=100000, help="Maximum number of fe
 args1 = parser.parse_args()
 print(args1) 
 
-dt = [1,3,4,6,12,24,48]#[24, 48] #  #discretization unit in hours
+dt = [3,4,6,12,24,48]#[24, 48] #  #discretization unit in hours
 
 dw = [0,1,3,5,7] #length of the sliding window of previous features, in units of dt
 
@@ -45,8 +45,9 @@ for comb in all_combs:
     bar.update(n_comb+1)
     n_comb+=1
     
-    
-    if dw==0:
+    if dt==1 and dw==0:
+        continue
+    if dw==0 and dt!=1:
         create=True
     print("Creating dataset for discretization unit "+str(dt)+" and window size "+str(dw)+"...")
     output_dir_dt = args1.output_dir + str(dt)+'/'#args.output_dir +'\\'+str(dt)+'\\'
