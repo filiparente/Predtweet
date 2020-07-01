@@ -360,6 +360,29 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     delta = timedelta(hours=args.discretization_unit)
     delta2 = timedelta(hours=args.window_size*args.discretization_unit)
 
+    #select current directory
+    directory = "/mnt/hdd_disk2/frente/embbedings_sentence_transformer" #r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\embeddings_sentence_transformer\\"
+
+    r = []                                                                                                            
+    subdirs = [x[0] for x in os.walk(directory)]                                                                            
+    for subdir in subdirs:                                                                                            
+        files = next(os.walk(subdir))[2]                                                                             
+        if (len(files) > 0):                                                                                          
+            for file in files:                                                                                        
+                r.append(subdir + "/" + file)    
+    r2 = [el for el in r if el.endswith('.txt')]     
+
+    n_embeds_chunk = len(r2)
+    n=0
+    t=0
+    file_ = r2[n]      
+    n += 1                                                          
+
+    #Load txt file containing the times of embbedings chunk (BERT)
+    f = open(file_, "r")
+    data_ = json.load(f)
+    BERT_timestamps = list(data_.keys())
+
     
     if cleaning:
         f = open(args.csv_path+'cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
@@ -397,10 +420,31 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
             for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
                 
                 if cleaning:
-                    tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet])
+                    tweet_time = df_chunk['timestamp'][tweet]#pd.to_datetime(df_chunk['timestamp'][tweet])
                 else:
-                    tweet_time = pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern', ambiguous=True)
+                    tweet_time = df_chunk['Tweet_time'][tweet]#pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern', ambiguous=True)
+                
+                if n>n_embeds_chunk:
+                    break
+                if t==len(BERT_timestamps):
+                    #Open next embbedings_chunk.txt file
+                    del file_, f, BERT_timestamps
+                    file_ = r2[n]  
+                    n += 1  
+                    f = open(file_, "r")
+                    data_ = json.load(f)
+                    BERT_timestamps = list(data_.keys())
+                    t=0 
 
+                if tweet_time != int(BERT_timestamps[t]):
+                    #Load txt file containing the times of embbedings chunk (BERT)
+                    continue
+                t += 1  
+                if cleaning:
+                    tweet_time = pd.to_datetime(tweet_time)
+                else:
+                    tweet_time = pd.to_datetime(tweet_time)#.tz_localize('US/Eastern', ambiguous=True)
+                
                 if n_chunks == 1 and enter:
                     prev_date = tweet_time
                     next_date = prev_date+delta
