@@ -24,7 +24,10 @@ print(args1)
 if isinstance(args1.n_features, int):
     n_features = [args1.n_features]
 else:
-    n_features = args1.n_features
+    if isinstance(args1.n_features, str):
+        n_features = [int(s) for s in args1.n_features[1:-1].split(',') if s.isdigit()]
+    else:
+        n_features = args1.n_features
 
 path = args1.dt_dir
 os.chdir(path)
@@ -38,9 +41,12 @@ bar.start()
 args=Args("",0,"")
 n=0
 
+subfolders_path = [subfolders_path[0]]
+
 for subfolder_path in subfolders_path:
     subfolder_path = subfolder_path.replace('\\\\', '\\')
          
+    
     bar.update(n+1)
     n+=1
 
@@ -48,6 +54,7 @@ for subfolder_path in subfolders_path:
     args.n_features = n_features
     args.output_dir = subfolder_path
 
+    pdb.set_trace()
     run.main(args)
     
 bar.finish()

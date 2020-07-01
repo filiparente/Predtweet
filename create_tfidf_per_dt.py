@@ -30,6 +30,7 @@ from pathlib import Path
 import pycld2 as cld2
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+
 #This function returns the numeric part of the file name and converts to an integer
 def sortKeyFunc(s):
     return int(os.path.basename(s)[9:-4])
@@ -193,6 +194,7 @@ class TweetBatch():
         #writer = csv.writer(csvfile, delimiter=",") #csv.DictWriter(csvfile, fieldnames=fieldnames)
         #writer.writerow(fieldnames)
         #Get timestamps
+        pdb.set_trace()
         timestamps = pd.to_datetime(timestamps_)
 
         if n_batch == 1:
@@ -353,6 +355,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     train_tweets = []
     dev_tweets = []
     test_tweets = []
+    
 
     delta = timedelta(hours=args.discretization_unit)
     delta2 = timedelta(hours=args.window_size*args.discretization_unit)
@@ -443,7 +446,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
 
                     #prev_date = next_date
                     #next_date = prev_date+delta
-                    
+                    pdb.set_trace()
                     if n<train_split_date:#tweet_time<train_split_date:
                         #yield return_value,[_],[_]
                         #train_tweet_times.append(tweet_time.value)
@@ -712,7 +715,7 @@ def main(args):
         time_delta = end_date-start_date
 
         #Total number of dt's
-        n_dt = (time_delta.total_seconds()/(args.discretization_unit*3600))
+        n_dt = (time_delta.total_seconds()/(int(args.discretization_unit)*3600))
         percentages = [0.8, 0.1, 0.1]
         split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
@@ -787,11 +790,25 @@ def main(args):
         #Load tf-ids (features)
         #sparse_matrix = scipy.sparse.load_npz(r"C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\tf_idf2.npz")
         
+        
         modes = ['dev', 'test', 'train']
         for mode in modes:   
             #Load tf-idfs (features)
             sparse_matrix = scipy.sparse.load_npz(os.path.join(output_dir, mode + "_tfidf.npz"))
-            with open(os.path.join(output_dir, mode+"_tweet_times.txt"),"rb") as fp:
+            
+            os.chdir(output_dir)
+            if not os.path.exists(mode+"_tweet_times.txt"):
+                #move up one dir
+                os.chdir('..')
+                if os.path.exists(mode+"_tweet_times.txt"):
+                    aux_output_dir = os.path.abspath(os.getcwd())+'/'
+                else:
+                    print('error. tweet times not found')
+                    return
+            else:
+                aux_output_dir = output_dir
+
+            with open(os.path.join(aux_output_dir, mode+"_tweet_times.txt"),"rb") as fp:
                 tweet_times = pickle.load(fp)
 
             if isinstance(args.window_size, str):
@@ -803,6 +820,7 @@ def main(args):
                 discretization_unit = int(args.discretization_unit)
             else:
                 discretization_unit = args.discretization_unit
+            
             
             tweet_batch = TweetBatch(discretization_unit, window_size)
 
@@ -830,7 +848,7 @@ if __name__=="__main__":
     
     parser.add_argument('--csv_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\\', help="OS path to the folder where the input ids are located.")
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
-    parser.add_argument('--window_size', default=3, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
+    parser.add_argument('--window_size', default=0, help="Number of time windows to look behind. E.g.: If the user choses 3, when to provide the features for the current window, we average the embbedings of the tweets of the 3 previous windows.")
     parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")

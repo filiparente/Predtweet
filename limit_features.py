@@ -10,6 +10,8 @@ import pickle
 import scipy
 import argparse
 import pickle
+import pdb
+import create_tfidf_per_dt as run
 
 class CustomUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
@@ -28,10 +30,14 @@ def main(args):
 
     #Load vectorizer
     if '/' in args.vectorizer_path:
-        vectorizer_path = args.vectorizer_path+'/' 
+        vectorizer_path = args.vectorizer_path+'/'
+        output_dir = output_dir+'/' 
     else:
         vectorizer_path = args.vectorizer_path+'\\'
+        output_dir = output_dir+'\\'
     
+    subfolders_path = [output_dir+name for name in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir,name)) and '.' in name]
+
     tfidf = CustomUnpickler(open(vectorizer_path+ 'vectorizer.pk', 'rb')).load()
     #tfidf = pickle.load(open(vectorizer_path, "rb"))
 
@@ -43,6 +49,9 @@ def main(args):
     #Get dev and test corpus from vectorizer
     dev_corpus = tfidf.inverse_transform(dev_feature_matrix)
     test_corpus = tfidf.inverse_transform(test_feature_matrix)
+    
+    dev_corpus = [' '.join(dev_corpus[i]) for i in range(len(dev_corpus))]
+    test_corpus = [' '.join(test_corpus[i]) for i in range(len(test_corpus))]
 
     n_features = tfidf._tfidf._idf_diag.shape[0]
     new_n_features = args.n_features
@@ -50,19 +59,19 @@ def main(args):
     original_vectorizer = copy.deepcopy(tfidf) #save the original tfidf vectorizer
 
     for i in range(len(new_n_features)):
-
+        
+        #pdb.set_trace()
         assert new_n_features[i]<n_features, "It is not possible to limit the number of features to a number greater than max_features= " + str(n_features)+" used during training."
 
         #Dev and test
         #Change number of features
         #print(tfidf.vocabulary_)
-        pdb.set_trace()
         train_feature_matrix2, removed_terms = tfidf._limit_features(train_feature_matrix, vocabulary=tfidf.vocabulary_, limit=new_n_features[i])
         #tfidf now is the new tfidf with new_n_features
         #print(tfidf.vocabulary_)
 
-        dev_feature_matrix = tfidf.transform(dev_corpus)
-        test_feature_matrix = tfidf.transform(test_corpus)
+        dev_feature_matrix2 = tfidf.transform(dev_corpus)
+        test_feature_matrix2 = tfidf.transform(test_corpus)
 
         #Store train, dev and test matrices with reduced number of features (=new_n_features)
         if not os.path.exists(vectorizer_path+str(new_n_features[i])):
@@ -74,9 +83,9 @@ def main(args):
             path = output_dir+ str(new_n_features[i])+'\\'
             
 
-        scipy.sparse.save_npz(os.path.join(path, "train_tfidf.npz"), train_feature_matrix)
-        scipy.sparse.save_npz(os.path.join(path, "dev_tfidf.npz"), dev_feature_matrix)
-        scipy.sparse.save_npz(os.path.join(path, "test_tfidf.npz"), test_feature_matrix)
+        scipy.sparse.save_npz(os.path.join(path, "train_tfidf.npz"), train_feature_matrix2)
+        scipy.sparse.save_npz(os.path.join(path, "dev_tfidf.npz"), dev_feature_matrix2)
+        scipy.sparse.save_npz(os.path.join(path, "test_tfidf.npz"), test_feature_matrix2)
 
         #Store vectorizer with reduced number of features (=new_n_features)
         with open(os.path.join(path, 'vectorizer.pk'), 'wb') as infile:
@@ -86,24 +95,25 @@ def main(args):
         os.chdir(vectorizer_path)
         result = glob.glob('*/')
         #subfolders_path = [folder for folder in result if folder!='.' and folder!='..'] 
-        subfolders_path = [x[0] for x in os.walk(path) if len(x[1])!=0 and len(x[2])!=0]
+        #subfolders_path = [folder for folder in result if folder!='.' and folder!='..'] 
+        #subfolders_path = [x[0] for x in os.walk(output_dir) if x[0]!= output_dir and x[0]!=path[:-1]]
 
         for window in subfolders_path:
-            dw = window[-1]
-            dt = vectorizer_path[-1]
+            dw = int(window[-1])
+            dt = int(window[-3])
 
             #Run for all windows again
-            print("Creating dataset for discretization unit "+str(vectorizer_path[-1])+" and window size "+str(dw)+"...")
+            print("Creating dataset for discretization unit "+str(dt)+" and window size "+str(dw)+"...")
 
             if '/' in path:
-                output_dir_dt = path + str(dt)+'/'
+                #output_dir_dt = path + str(dt)+'/'
                 output_dir_dtdw = path + str(dt)+'.'+str(dw)+'/'
             else:
-                output_dir_dt = path + str(dt)+'\\'
+                #output_dir_dt = path + str(dt)+'\\'
                 output_dir_dtdw = path + str(dt)+'.'+str(dw)+'\\'
 
-            if not os.path.exists(output_dir_dt):
-                os.makedirs(output_dir_dt)
+            #if not os.path.exists(output_dir_dt):
+            #    os.makedirs(output_dir_dt)
 
             if not os.path.exists(output_dir_dtdw):
                 os.makedirs(output_dir_dtdw)
@@ -111,7 +121,7 @@ def main(args):
             args.discretization_unit = dt
             args.window_size = dw
             args.create = False
-            args.output_dir = output_dir_dt
+            args.output_dir = path#output_dir_dt
             args.ids_path = None
             args.max_features = new_n_features[i]
             args.csv_path = None
@@ -120,6 +130,11 @@ def main(args):
 
         #update
         del tfidf
+        del train_feature_matrix2
+        del dev_feature_matrix2
+        del test_feature_matrix2
+
+
         tfidf = copy.deepcopy(original_vectorizer)
 
 if __name__=="__main__":
@@ -131,5 +146,3 @@ if __name__=="__main__":
     args = parser.parse_args()
     
     print(args) 
-    main(args)
-
