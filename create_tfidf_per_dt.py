@@ -31,6 +31,18 @@ import pycld2 as cld2
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+def natural_keys(text):
+    '''
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
+
+
 #This function returns the numeric part of the file name and converts to an integer
 def sortKeyFunc(s):
     return int(os.path.basename(s)[9:-4])
@@ -370,7 +382,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
         if (len(files) > 0):                                                                                          
             for file in files:                                                                                        
                 r.append(subdir + "/" + file)    
-    r2 = [el for el in r if el.endswith('.txt')]     
+    r2 = [el for el in r if el.endswith('.txt')].sort(key=natural_keys)
 
     n_embeds_chunk = len(r2)
     n=0
