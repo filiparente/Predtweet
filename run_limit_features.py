@@ -41,7 +41,8 @@ bar.start()
 args=Args("",0,"")
 n=0
 
-subfolders_path = [subfolders_path[0]]
+subfolders_path = [subfolder_path for subfolder_path in subfolders_path if len([int(s) for s in subfolder_path.split('/') if s.isdigit()])==1]
+#subfolders_path = [subfolders_path[0]]
 
 for subfolder_path in subfolders_path:
     subfolder_path = subfolder_path.replace('\\\\', '\\')
@@ -54,7 +55,7 @@ for subfolder_path in subfolders_path:
     args.n_features = n_features
     args.output_dir = subfolder_path
 
-    pdb.set_trace()
+    
     run.main(args)
     
 bar.finish()

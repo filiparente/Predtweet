@@ -26,14 +26,14 @@ parser.add_argument('--max_features', default=100000, help="Maximum number of fe
 args1 = parser.parse_args()
 print(args1) 
 
-dt = [3,4,6,12,24,48]#[24, 48] #  #discretization unit in hours
+dt = [1,3,4,6,12,24,48]#[24, 48] #  #discretization unit in hours
 
 dw = [0,1,3,5,7] #length of the sliding window of previous features, in units of dt
 
 create=False
 
 all_combs = list(itertools.product(dt, dw))
-
+pdb.set_trace()
 bar = progressbar.ProgressBar(maxval=len(all_combs), widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage()])
 bar.start()
 n_comb = 0
@@ -47,9 +47,10 @@ for comb in all_combs:
     
     if dt==1 and dw==0:
         continue
-    if dw==0 and dt!=1:
-        create=True
-    print("Creating dataset for discretization unit "+str(dt)+" and window size "+str(dw)+"...")
+    #if dw==0: #and dt!=1:
+    #    create=True
+    #if dt!=1:
+    #    print("Creating dataset for discretization unit "+str(dt)+" and window size "+str(dw)+"...")
     output_dir_dt = args1.output_dir + str(dt)+'/'#args.output_dir +'\\'+str(dt)+'\\'
     output_dir_dtdw = output_dir_dt + str(dt)+'.'+str(dw)+'/'#output_dir_dt + str(dt)+'.'+str(dw)+r'\\'
 
@@ -64,13 +65,14 @@ for comb in all_combs:
     args.create = create
     args.output_dir = output_dir_dt
     args.ids_path = args1.ids_path
-    args.max_features = args1.max_features
+    args.max_features = int(args1.max_features)
     args.csv_path = args1.csv_path
  
-    run.main(args)
-    if create: #create and store window 0
-        create = False
+    
+    #    run.main(args)
+    if not create and dw!=0: #create and store window 0
+        #create = False
         args.create=False
         run.main(args)
-    
+        
 bar.finish()

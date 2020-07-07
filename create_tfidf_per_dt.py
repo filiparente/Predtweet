@@ -206,9 +206,8 @@ class TweetBatch():
         #writer = csv.writer(csvfile, delimiter=",") #csv.DictWriter(csvfile, fieldnames=fieldnames)
         #writer.writerow(fieldnames)
         #Get timestamps
-        pdb.set_trace()
         timestamps = pd.to_datetime(timestamps_)
-
+        
         if n_batch == 1:
             self.prev_date = timestamps[0]
             self.next_date = self.prev_date+self.delta 
@@ -235,7 +234,7 @@ class TweetBatch():
                 continue
 
             self.counts += np.count_nonzero(mask)
-
+            
             try:
                 aux = features[mask,:].mean(axis=0) #before: .todense()
             except:
@@ -254,6 +253,18 @@ class TweetBatch():
             if mask[-1] == True:#batch['timestamp'][mask][-1] == end_date:
                 assert np.array(timestamps_)[mask][-1]==end_date, "error"
                 self.store_embs = avg_emb
+                if len(avg_emb)!=0:
+                    self.store(self.store_embs)
+                self.n_ex+=1
+                if self.n_ex == self.dataset['window_size']+1:
+                    tfidf,count = self.sliding_window()
+                    
+                    if len(self.y)==0:
+                        self.X = tfidf
+                    else:
+                        self.X = scipy.sparse.vstack([self.X,tfidf])
+                    self.y.append(count)
+                    self.n_ex-=1
                 break
 
             #dataset, window_n, store_embs, counts, prev_date, next_date = store(dataset, window_n, prev_date, next_date, delta, avg_emb, counts, store_embs)
@@ -262,6 +273,7 @@ class TweetBatch():
             if self.n_ex == self.dataset['window_size']+1:
                 #self.sliding_window(writer)
                 tfidf, count = self.sliding_window()
+                
                 if len(self.y)==0:
                     self.X = tfidf
                 else:
@@ -368,7 +380,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
     dev_tweets = []
     test_tweets = []
     
-
+    pdb.set_trace()
     delta = timedelta(hours=args.discretization_unit)
     delta2 = timedelta(hours=args.window_size*args.discretization_unit)
 
@@ -382,19 +394,20 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
         if (len(files) > 0):                                                                                          
             for file in files:                                                                                        
                 r.append(subdir + "/" + file)    
-    r2 = [el for el in r if el.endswith('.txt')].sort(key=natural_keys)
-
+    r2 = [el for el in r if el.endswith('.txt')]
+    r2.sort(key=natural_keys)
+    
     n_embeds_chunk = len(r2)
-    n=0
+    nn=0
     t=0
-    file_ = r2[n]      
-    n += 1                                                          
+    file_ = r2[nn]      
+    nn += 1                                                          
 
     #Load txt file containing the times of embbedings chunk (BERT)
-    f = open(file_, "r")
-    data_ = json.load(f)
+    f_ = open(file_, "r")
+    data_ = json.load(f_)
     BERT_timestamps = list(data_.keys())
-
+    print(len(BERT_timestamps))
     
     if cleaning:
         f = open(args.csv_path+'cleaned_sorted_filtered_tweets.csv', 'a+', newline='')
@@ -406,7 +419,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
         #writer.writerow(fields)
 
     enter =  True
-    n=0
+    n=1
     for df_chunk in df:
         print("Processing chunk n " + str(n_chunks+1))
         n_chunks += 1
@@ -432,36 +445,43 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
             for tweet in range((n_chunks-1)*chunksize, nRow+(n_chunks-1)*chunksize, 1):
                 
                 if cleaning:
-                    tweet_time = df_chunk['timestamp'][tweet]#pd.to_datetime(df_chunk['timestamp'][tweet])
+                    tweet_time = pd.to_datetime(df_chunk['timestamp'][tweet]).value#pd.to_datetime(df_chunk['timestamp'][tweet])
                 else:
                     tweet_time = df_chunk['Tweet_time'][tweet]#pd.to_datetime(df_chunk['Tweet_time'][tweet]).tz_localize('US/Eastern', ambiguous=True)
                 
-                if n>n_embeds_chunk:
+               # if n_chunks==1 and enter:
+               #     prev_date = pd.to_datetime(tweet_time)
+               #     next_date = prev_date+delta
+               #     sentences = []
+               #     enter = False
+                
+                if nn>n_embeds_chunk:
                     break
                 if t==len(BERT_timestamps):
                     #Open next embbedings_chunk.txt file
-                    del file_, f, BERT_timestamps
-                    file_ = r2[n]  
-                    n += 1  
-                    f = open(file_, "r")
-                    data_ = json.load(f)
+                    f_.close()
+                    del file_, f_, BERT_timestamps
+                    file_ = r2[nn]  
+                    nn += 1  
+                    f_ = open(file_, "r")
+                    data_ = json.load(f_)
                     BERT_timestamps = list(data_.keys())
                     t=0 
 
+                
                 if tweet_time != int(BERT_timestamps[t]):
                     #Load txt file containing the times of embbedings chunk (BERT)
                     continue
                 t += 1  
-                if cleaning:
-                    tweet_time = pd.to_datetime(tweet_time)
-                else:
-                    tweet_time = pd.to_datetime(tweet_time)#.tz_localize('US/Eastern', ambiguous=True)
-                
                 if n_chunks == 1 and enter:
-                    prev_date = tweet_time
+                    prev_date = pd.to_datetime(tweet_time)
                     next_date = prev_date+delta
                     sentences = []
-                    enter = False
+                    enter = False 
+                #if cleaning:
+                    #tweet_time = pd.to_datetime(tweet_time)
+                #else:
+                tweet_time = pd.to_datetime(tweet_time)#.tz_localize('US/Eastern', ambiguous=True)
 
 
                 n_tot_sent += 1
@@ -483,7 +503,9 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                             # CLEANING PHASE
                             sentence = get_cleaned_text(sentence)
                             if not len(sentence)>0:
-                                continue
+                                #pdb.set_trace()
+                                #continue
+                                sentence = 'I'
                             writer.writerow({'Tweet_time': str(tweet_time.value), 'Text': sentence})
                 else:
                     sentence = df_chunk['Text'][tweet]
@@ -495,15 +517,17 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                 #    dev_tweet_times.append(tweet_time.value)
                 #elif tweet_time>=dev_split_date+delta2:
                 #    test_tweet_times.append(tweet_time.value)
-  
-                if tweet_time>next_date: 
+                
+               
+                if tweet_time>=next_date: 
                     #return_value = sentences
                     #sentences = []
 
                     #prev_date = next_date
                     #next_date = prev_date+delta
-                    pdb.set_trace()
-                    if n<train_split_date:#tweet_time<train_split_date:
+                    if n==3967:
+                        pdb.set_trace()
+                    if n<=train_split_date:#tweet_time<train_split_date:
                         #yield return_value,[_],[_]
                         #train_tweet_times.append(tweet_time.value)
                         
@@ -511,12 +535,12 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                         train_tweet_times.extend(tweet_times)
                         #assert len(train_tweet_times)==sum([len(train_tweets_dt) for train_tweets_dt in train_tweets]), "error length training"
                         #n+=1
-                    elif n>=train_split_date+args.window_size and n<dev_split_date:#tweet_time>=train_split_date+delta2 and tweet_time < dev_split_date:                                #yield [_],return_value,[_]
+                    elif n>train_split_date+args.window_size and n<=dev_split_date:#tweet_time>=train_split_date+delta2 and tweet_time < dev_split_date:                                #yield [_],return_value,[_]
                         #dev_tweet_times.append(tweet_time.value)
                         dev_tweets.append(sentences)
                         dev_tweet_times.extend(tweet_times)
                         #n+=1
-                    elif n>=dev_split_date+args.window_size:#tweet_time>=dev_split_date+delta2:#n>=dev_split_date+args.window_size:
+                    elif n>dev_split_date+args.window_size:#tweet_time>=dev_split_date+delta2:#n>=dev_split_date+args.window_size:
                         #yield [_],[_],return_value
                         #test_tweet_times.append(tweet_time.value)
                         test_tweets.append(sentences)
@@ -539,7 +563,7 @@ def ChunkIterator(df, cleaning, n_chunks, chunksize, n_tot_sent, n_en_sent, trai
                 #    test_tweet_times.append(tweet_time.value) 
         #return tweet_times, n_en_sent, n_tot_sent 
     if cleaning:
-        print(tweet_time)
+        print(pd.to_datetime(tweet_time))
         print(train_split_date)
         print(dev_split_date)
         
@@ -561,7 +585,7 @@ def load_data(path, chunks=False):
     chunksize = 500000
 
     if chunks:
-        df = pd.read_csv(path, delimiter=',',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
+        df = pd.read_csv(path, delimiter=';',  engine='python', chunksize=chunksize)#, parse_dates=['timestamp'], index_col=['timestamp'])
     else:
         nRowsRead = None # specify 'None' if want to read whole file
         df = pd.read_csv(path, delimiter=';', nrows = nRowsRead)#, parse_dates=['timestamp'], index_col=['timestamp'])
@@ -715,18 +739,18 @@ def main(args):
             joint_bool = bool_sorted and bool_filtered and bool_cleaned
             joint_bool2 = bool_sorted and bool_filtered
             
-            if any(joint_bool):
-                print("Found cleaned, sorted and filtered csv! Loading in chunks...")
+            #if any(joint_bool):
+		#print("Found cleaned, sorted and filtered csv! Loading in chunks...")
 
                 # Load data from sorted csv in chunks
-                df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool)[0][0]]), chunks=True)
+                #df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool)[0][0]]), chunks=True)
                 
-                cleaning = False
-            elif any(joint_bool2): 
+                #cleaning = False
+            if any(joint_bool2): #elif 
                 print("Found sorted and filtered csv! Loading in chunks...")
 
                 # Load data from sorted csv in chunks
-                df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool2)[0][0]]), chunks=True)
+                df = load_data(cpath.joinpath(csv_path+ result[np.where(joint_bool2)[0][1]]), chunks=True) #0]]), chunks=True)
 
                 cleaning = True
 
@@ -760,6 +784,9 @@ def main(args):
                 data = json.load(infile)
                 if n==1:
                     start_date = pd.to_datetime(list(map(int, data.keys()))[0])
+                    start_date = pd.to_datetime(list(map(int, data.keys()))[0])
+                    start_date = pd.to_datetime(list(map(int, data.keys()))[0])
+                    start_date = pd.to_datetime(list(map(int, data.keys()))[0])
                 else:
                     end_date = pd.to_datetime(list(map(int, data.keys()))[-1])
                 n += 1
@@ -772,19 +799,38 @@ def main(args):
 
         #Total number of dt's
         n_dt = (time_delta.total_seconds()/(int(args.discretization_unit)*3600))
+        n_examples = [4959, 1653, 1239, 826, 413, 206, 103]
+        
+        if n_dt not in n_examples:
+            n_dt = min(n_examples, key=lambda x:abs(x-n_dt))
+         
+
         percentages = [0.8, 0.1, 0.1]
-        split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
+        
+        lengths = np.ceil(np.multiply(n_dt,percentages))
+        diff_ = np.sum(lengths)-n_dt
+
+        if diff_>0:
+            #subtract 1 starting from the end
+            for i in range(len(lengths)-1, -1, -1):
+                lengths[i] -= 1
+                diff_ -= 1
+                if diff_==0:
+                    break
+        split_idx = np.cumsum(lengths)
+ 
+        #split_idx = np.cumsum(np.multiply(int(np.ceil(n_dt)),percentages))
 
         train_split_date = int(split_idx[0])#(start_date+datetime.timedelta(hours=split_idx[0])).tz_localize('US/Eastern')
         dev_split_date = int(split_idx[1])#(start_date+datetime.timedelta(hours = split_idx[1])).tz_localize('US/Eastern')
         test_split_date = int(split_idx[2])#(start_date+datetime.timedelta(hours = split_idx[2])).tz_localize('US/Eastern')
-
+        
         n_chunks = 0
         n_en_sent = 0
         n_tot_sent = 0
 
         chunksize = 500000
-                        
+                       
         #field_names = ['Sentence', 'Replies', 'Likes', 'Retweets', 'English']
 
         #train_tweet_times, dev_tweet_times, test_tweet_times = ChunkIterator(...)
@@ -908,8 +954,6 @@ if __name__=="__main__":
     parser.add_argument('--create', action="store_false", help="Do you want to create tf-idfs from a csv file or to load and create the dataset with windows?")
     parser.add_argument('--output_dir', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\TF-IDF\dt\1\\', help="Output dir to store the tweet times and tf idfs of train dev and test.")
     parser.add_argument('--ids_path', default=r'C:\Users\Filipa\Desktop\Predtweet\bitcoin_data\token_ids\\', help="Token ids path to read start date and end date from.")
-    parser.add_argument('--max_features', default=100000, help="Maximum number of features to consider in the TfIdfVectorizer.")
+    parser.add_argument('--max_features', default=768, help="Maximum number of features to consider in the TfIdfVectorizer.")
     args = parser.parse_args()
-    print(args) 
     main(args)
-
