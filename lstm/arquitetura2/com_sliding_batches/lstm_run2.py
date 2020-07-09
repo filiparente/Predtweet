@@ -126,7 +126,7 @@ class MyDataset(Dataset):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=2):
+    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
         super(Encoder, self).__init__()
 
         self.input_size = input_size
@@ -169,7 +169,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, hidden_dim, device, use_features, num_layers=2):
+    def __init__(self, hidden_dim, device, use_features, num_layers=1):
         super(Decoder, self).__init__()
         # input_size=1 since the output are single values
         #self.lstm = nn.LSTM(1, hidden_dim, num_layers=num_layers, dropout=0.2)
@@ -229,7 +229,14 @@ def set_seed(args,n_gpu):
 
 
 def collate_fn_(batch):
-    return batch[0]
+    X = []
+    y = []
+    for i in range(len(batch)):
+        X.append(batch[i][0])
+        y.append(batch[i][1])
+    #print(batch)
+   
+    return X, y#batch[0]
 
 def create_dataset2(sequence, n_steps):
     X, y = list(), list()
@@ -317,6 +324,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         trainX_sample, trainY_sample = batch
 
         if not args.use_features:
+            if (len(trainX_sample)*len(trainX_sample[0]))!=args.batch_size*args.seq_len:
+                continue
             trainX_sample = np.reshape(trainX_sample, (args.batch_size, args.seq_len, 1))
             trainY_sample = np.reshape(trainY_sample, (args.batch_size,1))
 
@@ -327,8 +336,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         #if trainX_sample.shape[0] == 1:
         #    trainX_sample = trainX_sample.unsqueeze(0)
         trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
-        if trainX_sample.shape[0]==0 or step%(trainX_sample.shape[0]*trainX_sample.shape[1])!=0: #no example
-            continue
+        #if trainX_sample.shape[0]==0 or step%(trainX_sample.shape[0]*trainX_sample.shape[1])!=0: #no example
+        #    continue
         
         if store:
             val_obs_seq.append(trainY_sample)
@@ -661,10 +670,10 @@ def main():
     dev_dataset2 = DatasetSlidingBatches(dev_dataset_, len(dev_dataset[0]))
     test_dataset2 = DatasetSlidingBatches(test_dataset_,len(test_dataset[0]))
 
-    train_dataloader = DataLoader(train_dataset2, sampler=SequentialSampler(train_dataset2), batch_size=1, num_workers=1, collate_fn=collate_fn_)
-    dev_dataloader = DataLoader(dev_dataset2, sampler=SequentialSampler(dev_dataset2), batch_size=1, num_workers=1, collate_fn=collate_fn_)
-    test_dataloader = DataLoader(test_dataset2, sampler=SequentialSampler(test_dataset2), batch_size=1, num_workers=1, collate_fn=collate_fn_)
-
+    train_dataloader = DataLoader(train_dataset2, sampler=SequentialSampler(train_dataset2), batch_size=batch_size, num_workers=1, collate_fn=collate_fn_)
+    dev_dataloader = DataLoader(dev_dataset2, sampler=SequentialSampler(dev_dataset2), batch_size=batch_size, num_workers=1, collate_fn=collate_fn_)
+    test_dataloader = DataLoader(test_dataset2, sampler=SequentialSampler(test_dataset2), batch_size=batch_size, num_workers=1, collate_fn=collate_fn_)
+    
  
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
@@ -744,7 +753,9 @@ def main():
        
     #Regression criterion: mean squared error loss
     criterion = nn.MSELoss()
-    
+    global_step = 0
+    epoch = 0
+
     if not args.evaluate_only:
         # Train!
         print("***** Running training *****")
@@ -762,7 +773,7 @@ def main():
         global_step = 0
         epochs_trained = 0
         steps_trained_in_current_epoch = 0
-
+       
         best_mse_eval = np.inf
         save_best = False
         final_epoch = False
@@ -817,7 +828,7 @@ def main():
         for epoch in train_iterator:
             if epoch == args.num_train_epochs-1:
                 final_epoch = True
-                train_obs_seq = []
+                #train_obs_seq = []
                 train_preds_seq = []
 
 
@@ -828,12 +839,13 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             n_batch = 1
             
-            #encoder.hidden = encoder.init_hidden(batch_size)
+            encoder.hidden = encoder.init_hidden(batch_size)
 
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator): 
-                encoder.hidden = encoder.init_hidden(batch_size)
+                #encoder.hidden = encoder.init_hidden(batch_size)
 
+                
                 # Set our model to training mode (as opposed to evaluation mode)
                 encoder = encoder.train()
                 decoder = decoder.train() 
@@ -844,15 +856,18 @@ def main():
                 #    continue
                 
                 trainX_sample, trainY_sample = batch
-                if trainX_sample.shape[0]==0:#no example
-                    continue
-                if final_epoch:
-                    if step%(batch_size*seq_len)==0:
-                        train_obs_seq.append(trainY_sample)
+                #if trainX_sample.shape[0]==0:#no example
+                #    continue
+                #if final_epoch:
+                #    if step%(batch_size*seq_len)==0:
+                #        train_obs_seq.append(trainY_sample)
 
                 n_batch += 1
-
+                
                 if not args.use_features:
+                    
+                    if len(trainX_sample)*len(trainX_sample[0])!=batch_size*seq_len:
+                        continue
                     trainX_sample = np.reshape(trainX_sample, (batch_size, seq_len, 1))
                     trainY_sample = np.reshape(trainY_sample, (batch_size,1))
 
@@ -888,6 +903,7 @@ def main():
                 #loss, preds = decoder(trainY_sample, hidden, criterion)
                 loss, preds = decoder(trainY_sample, output, criterion)
 
+               
                 if n_gpu > 1:
                     loss = loss.mean()  # mean() to average on multi-gpu parallel training
                 if args.gradient_accumulation_steps > 1:
@@ -1017,6 +1033,7 @@ def main():
                 train_iterator.close()
                 break
 
+       
         # Plot training loss (mse)
         plt.figure(figsize=(15,8))
         plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
@@ -1042,7 +1059,7 @@ def main():
         plt.title("Train observation sequence: real and predicted")
         plt.xlabel("Sample")
         plt.ylabel("Count")
-        obs_plot, = plt.plot(np.concatenate(train_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+        obs_plot, = plt.plot(train_obs_seq.ravel().tolist(), color='blue', label='Train observation sequence (real)')
         pred_plot, = plt.plot(torch.cat(train_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
@@ -1055,7 +1072,7 @@ def main():
         plt.title("Validation observation sequence: real and predicted")
         plt.xlabel("Sample")
         plt.ylabel("Count")
-        obs_plot, = plt.plot(np.concatenate(val_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+        obs_plot, = plt.plot(dev_obs_seq.ravel().tolist(), color='blue', label='Train observation sequence (real)')
         pred_plot, = plt.plot(torch.cat(best_val_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
@@ -1070,7 +1087,7 @@ def main():
         if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
             #Create encoder and decoder models
             best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
-            best_decoder = Decoder(HIDDEN_DIM, device)
+            best_decoder = Decoder(HIDDEN_DIM, device, args.use_features)
 
             #Put models in gpu
             best_encoder.cuda()
