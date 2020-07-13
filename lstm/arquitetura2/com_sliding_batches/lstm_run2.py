@@ -126,7 +126,7 @@ class MyDataset(Dataset):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
+    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=2):
         super(Encoder, self).__init__()
 
         self.input_size = input_size
@@ -350,6 +350,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
+            
             if encoder.hidden is None: #step==0:
                 encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
@@ -843,7 +844,7 @@ def main():
 
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator): 
-                #encoder.hidden = encoder.init_hidden(batch_size)
+                encoder.hidden = encoder.init_hidden(batch_size)
 
                 
                 # Set our model to training mode (as opposed to evaluation mode)

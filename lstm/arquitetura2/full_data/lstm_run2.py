@@ -53,6 +53,7 @@ class MyCollator(object):
         # do something with batch and self.params
         batch_size = self.batch_size
         seq_len = self.seq_len
+        
         n_features = batch[0]['X'].shape[0]
 
         X = np.zeros((batch_size, seq_len, n_features))
@@ -236,7 +237,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     n_batch = 1
 
     eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
-    
+     
     for step, batch in enumerate(eval_iterator):
         # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
         encoder = encoder.eval()   
@@ -264,8 +265,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            if encoder.hidden is None: #step==0:
-                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            #if encoder.hidden is None: #step==0:
+            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -501,25 +502,28 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    
+   
     train_dataset = MyDataset(train_obs_seq, train_X, window_size, seq_len)
     dev_dataset = MyDataset(dev_obs_seq, dev_X, window_size, seq_len)
     test_dataset = MyDataset(test_obs_seq, test_X, window_size, seq_len)
 
 
     # Create an iterator of our data with torch DataLoader. This helps save on memory during training because, unlike a for loop, 
-    # with an iterator the entire dataset does not need to be loaded into memory
-    my_collator = MyCollator(batch_size=batch_size, seq_len=seq_len)
+    # with an iterator the entire dataset does not need to be loaded into memory   
+    my_collator = MyCollator(batch_size=1, seq_len=len(train_obs_seq))
+    my_collator2 = MyCollator(batch_size=1, seq_len=len(dev_obs_seq))
+    my_collator3 = MyCollator(batch_size=1, seq_len=len(test_obs_seq))
+
     print("Number of points in train dataset = " + str(len(train_dataset)))
     print("Number of points in dev dataset = " + str(len(dev_dataset)))
     print("Number of points in test dataset = " + str(len(test_dataset)))
-    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
-    dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
-    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=batch_size*seq_len, num_workers=1, collate_fn=my_collator)
+    train_dataloader = DataLoader(train_dataset, sampler=SequentialSampler(train_dataset), batch_size=len(train_obs_seq), num_workers=1, collate_fn=my_collator)
+    dev_dataloader = DataLoader(dev_dataset, sampler=SequentialSampler(dev_dataset), batch_size=len(dev_obs_seq), num_workers=1, collate_fn=my_collator2)
+    test_dataloader = DataLoader(test_dataset, sampler=SequentialSampler(test_dataset), batch_size=len(test_obs_seq), num_workers=1, collate_fn=my_collator3)
 
     #if not os.path.isfile(args.output_dir+"/test_dataloader.pth"):
     #    torch.save(test_dataloader, args.output_dir+'/test_dataloader.pth')
-
+    
     num_train_examples = len(train_dataloader)
 
     #Number of times the gradients are accumulated before a backward/update pass
@@ -671,16 +675,16 @@ def main():
 
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator): 
-
                 # Set our model to training mode (as opposed to evaluation mode)
                 encoder = encoder.train()
                 decoder = decoder.train() 
 
+                
                 # Skip past any already trained steps if resuming training
                 #if steps_trained_in_current_epoch > 0:
                 #    steps_trained_in_current_epoch -= 1
                 #    continue
-                
+                 
                 trainX_sample, trainY_sample = batch
                 if trainX_sample.shape[0]==0:#no example
                     continue
@@ -710,6 +714,7 @@ def main():
                 #if step==0:
                 #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
+                
                 # Do forward pass through encoder: get hidden state
                 #hidden = encoder(trainX_sample)    
                 output, hidden = encoder(trainX_sample)
@@ -796,6 +801,8 @@ def main():
             #Evaluate at the end of the epoch
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.logging_steps>0 and epoch%args.logging_steps==0: 
+                    if nb_tr_steps == 0:
+                        nb_tr_steps =1
                     print("Train loss : {}".format(tr_loss/nb_tr_steps))
                     logs={}
                         
@@ -807,6 +814,7 @@ def main():
                     if args.evaluate_during_training: 
                         if first_eval: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
                             results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
+
                             first_eval = False
                         else:
                             results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
