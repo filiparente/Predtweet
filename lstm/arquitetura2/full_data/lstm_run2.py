@@ -264,8 +264,8 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
             # Reset hidden state of encoder for current batch
             # STATELESS LSTM:
-            if encoder.hidden is None: #step==0:
-                encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+            #if encoder.hidden is None: #step==0:
+            #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
 
             # Do forward pass through encoder: get hidden state
             #hidden = encoder(trainX_sample)    
@@ -911,7 +911,7 @@ def main():
             #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
             best_encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt")
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
-
+            logs = {}
             for key, value in results.items():
                 eval_key = "eval_{}".format(key)
                 logs[eval_key] = str(value)

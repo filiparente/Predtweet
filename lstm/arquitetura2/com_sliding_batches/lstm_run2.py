@@ -1098,14 +1098,6 @@ def main():
             best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
             best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
 
-            #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
-            #results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
-
-            #for key, value in results.items():
-            #    eval_key = "eval_{}".format(key)
-            #    logs[eval_key] = str(value)
-
-            #VER PORQUE É QUE FIZ ISTO
             best_encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt")
              
             results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
