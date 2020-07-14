@@ -155,7 +155,7 @@ class Encoder(nn.Module):
     def init_hidden(self, batch_size):
         #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
         #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
-       return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
+       return (nn.Parameter(torch.randn(self.num_layers,batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
@@ -213,7 +213,7 @@ class Decoder(nn.Module):
                     preds.append(output)
         else:
             for j in range(batch_size):
-                output = self.out(hidden[-1,j,:])
+                output = self.out(hidden[j,-1,:])
                 loss += criterion(output.view(-1,1), outputs[j].view(-1,1))
                 preds.append(output)
 
@@ -414,7 +414,7 @@ def main():
     parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
     parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
     parser.add_argument('--seq_len', type = int, default=50, help='Input dimension (number of timestamps).')
-    parser.add_argument('--batch_size', type = int, default=1, help='How many batches of sequence length inputs per iteration.')
+    parser.add_argument('--batch_size', type = int, default=10, help='How many batches of sequence length inputs per iteration.')
     parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
     #parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
@@ -704,7 +704,7 @@ def main():
         EMBEDDING_DIM = 768 #number of features in data points
     else:
         EMBEDDING_DIM = 1
-    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 20 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -840,7 +840,7 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             n_batch = 1
             
-            encoder.hidden = encoder.init_hidden(batch_size)
+            encoder.hidden = encoder.init_hidden(seq_len)
 
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator): 

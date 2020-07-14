@@ -622,6 +622,7 @@ def main():
             #    steps_trained_in_current_epoch -= 1
             #    continue
             
+            pdb.set_trace()
             trainX_sample, trainY_sample = batch
             if trainX_sample.shape[0]==0:#no example
                 continue

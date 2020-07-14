@@ -136,7 +136,7 @@ class Encoder(nn.Module):
     def init_hidden(self, batch_size):
         #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
         #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
-       return (nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, self.batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
+       return (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
     def forward(self, inputs):
         # Push through RNN layer (the ouput is irrelevant)
@@ -185,10 +185,9 @@ class Decoder(nn.Module):
 
             #loss += criterion(output, outputs[:, i].view(-1,1))
         #loss = criterion(output.view(-1,1), outputs.view(-1,1))
-
         for i in range(seq_len):
             for j in range(batch_size):
-                output = self.out(hidden[i,j,:])
+                output = self.out(hidden[j,i,:])
                 loss += criterion(output.view(-1,1), outputs[j,i].view(-1,1))
                 preds.append(output)
         return loss, torch.cat(preds)
@@ -236,8 +235,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
 
     n_batch = 1
 
-    eval_iterator = tqdm(eval_dataloader, desc="Evaluating")
-     
+    eval_iterator = tqdm(eval_dataloader, desc="Evaluating") 
     for step, batch in enumerate(eval_iterator):
         # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
         encoder = encoder.eval()   
@@ -258,7 +256,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
         if trainX_sample.shape[0]==0: #no example
             continue
         # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
-        trainX_sample = trainX_sample.transpose(1,0)
+        #trainX_sample = trainX_sample.transpose(1,0)
         
         # Run our forward pass
         #scores = model(trainX_sample)
@@ -671,8 +669,9 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             n_batch = 1
             
-            encoder.hidden = encoder.init_hidden(batch_size)
-
+            #encoder.hidden = encoder.init_hidden(batch_size)
+            encoder.hidden = encoder.init_hidden(len(train_obs_seq))
+            
             # Train the data for one epoch
             for step, batch in enumerate(epoch_iterator): 
                 # Set our model to training mode (as opposed to evaluation mode)
@@ -700,7 +699,7 @@ def main():
                 trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
                 
                 # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
-                trainX_sample = trainX_sample.transpose(1,0)
+                #trainX_sample = trainX_sample.transpose(1,0)
                 #print(trainY_sample)
                 # Run our forward pass
                 #scores = model(trainX_sample)
