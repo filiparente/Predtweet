@@ -194,12 +194,42 @@ class Decoder(nn.Module):
         return loss, torch.cat(preds)
         #return loss, output
 
+class LSTM(nn.Module):
+    #input size: Corresponds to the number of features in the input. Though our sequence length is 12, for each month we have only 1 value i.e. total number of passengers, therefore the input size will be 1.
+    #hidden layer size: Specifies the number of hidden layers along with the number of neurons in each layer. We will have one layer of 100 neurons.
+    #output size: The number of items in the output, since we want to predict the number of passengers for 1 month in the future, the output size will be 1.´
+
+    def __init__(self, input_size=1, hidden_layer_size=100, output_size=1):
+        super().__init__()
+        self.hidden_layer_size = hidden_layer_size
+
+        self.lstm = nn.LSTM(input_size, hidden_layer_size)
+
+        self.linear = nn.Linear(hidden_layer_size, output_size)
+
+        self.hidden_cell = (torch.zeros(1,1,self.hidden_layer_size),
+                            torch.zeros(1,1,self.hidden_layer_size))
+
+    def forward(self, input_seq):
+        lstm_out, self.hidden_cell = self.lstm(input_seq.view(len(input_seq) ,1, -1), self.hidden_cell)
+        predictions = self.linear(lstm_out.view(len(input_seq), -1))
+        return predictions[-1]
+
 def set_seed(args,n_gpu):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
+
+def create_inout_sequences(input_data, tw):
+    inout_seq = []
+    L = len(input_data)
+    for i in range(L-tw):
+        train_seq = input_data[i:i+tw]
+        train_label = input_data[i+tw:i+tw+1]
+        inout_seq.append((train_seq ,train_label))
+    return inout_seq
 
 # convert an array of values into a dataset matrix
 def create_dataset(X,y, batch_size, seq_len):
@@ -573,6 +603,18 @@ def main():
         print("Number of points in converted test dataset = " + str(len(test_dataset))+ " with sliding batches with batch_size "+ str(batch_size) +" and sequence length "+str(seq_len))
 
     else:
+        #normalize data: min/max scaling (-1 and 1)
+        scaler = MinMaxScaler(feature_range=(-1, 1))
+        train_data_normalized = scaler.fit_transform(train_obs_seq.reshape(-1, 1))
+        train_data_normalized = torch.FloatTensor(train_data_normalized).view(-1)
+
+        #sequence/labeling
+        #input sequence length for training is 24. (1h data, 24h memory)
+        train_window = 24
+
+        train_inout_seq = create_inout_sequences(train_data_normalized, train_window)
+
+
         train_dataset = create_dataset2(train_obs_seq)
         dev_dataset = create_dataset2(np.concatenate(([train_obs_seq[-1]],dev_obs_seq)))
         test_dataset = create_dataset2(np.concatenate(([dev_obs_seq[-1]],test_obs_seq)))
@@ -620,7 +662,7 @@ def main():
         EMBEDDING_DIM = 768 #number of features in data points
     else:
         EMBEDDING_DIM = 1
-    HIDDEN_DIM = 20 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 100 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -650,10 +692,16 @@ def main():
     #Create model
     encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
     decoder = Decoder(HIDDEN_DIM, device)
+    
+    #create model and define loss function and optimizer
+    model = LSTM()
+    loss_function = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     #Put models in gpu
     encoder.cuda()
     decoder.cuda()
+    model.cuda()
 
     # Create optimizers for encoder and decoder
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
@@ -742,6 +790,66 @@ def main():
         set_seed(args, n_gpu)  # Added here for reproductibility
 
         #Training
+        for epoch in train_iterator:
+            for seq, labels in train_inout_seq:
+                optimizer.zero_grad()
+                model.hidden_cell = (torch.zeros(1, 1, HIDDEN_DIM).to(device),
+                                torch.zeros(1, 1, HIDDEN_DIM).to(device))
+                
+                #(seq_len, batch_size, input_size)
+                seq = torch.tensor(np.reshape(seq,(len(seq),1,1)), dtype=torch.float).to(device)
+                labels = torch.tensor(labels).to(device)
+
+                y_pred = model(seq)
+
+                single_loss = loss_function(y_pred, labels)
+                single_loss.backward()
+                optimizer.step()
+
+            if epoch%25 == 1:
+                print(f'epoch: {epoch:3} loss: {single_loss.item():10.8f}')
+        print(f'epoch: {epoch:3} loss: {single_loss.item():10.10f}')
+        
+        #Predict in test set
+        fut_pred = len(dev_obs_seq)
+
+        #first filter the last 12 values from the training set to predict the first month in the test set
+        test_inputs = train_data_normalized[-train_window:].tolist()
+
+        # Set our model to evaluation mode (as opposed to training mode)
+        encoder = encoder.eval()
+        decoder = decoder.eval() 
+
+
+        for i in range(fut_pred):
+            seq = torch.FloatTensor(test_inputs[-train_window:])
+            with torch.no_grad():
+                encoder.hidden = (torch.zeros(1, 1, HIDDEN_DIM),
+                                torch.zeros(1, 1, HIDDEN_DIM))
+                #Append the prediction
+                test_inputs.append(encoder(seq).item())
+
+                #Append the true value (however it is not normalized)
+                #test_inputs.append(true_obs_seq(i))
+
+            print(test_inputs[fut_pred:])
+
+            #inverse transform the normalized predictions
+            actual_predictions = scaler.inverse_transform(np.array(test_inputs[train_window:] ).reshape(-1, 1))
+            print(actual_predictions)
+
+            #plot predictions
+            x = np.arange(132, 144, 1)
+
+            plt.title('Month vs Passenger')
+            plt.ylabel('Total Passengers')
+            plt.grid(True)
+            plt.autoscale(axis='x', tight=True)
+            plt.plot(dev_obs_seq)
+            plt.plot(x,actual_predictions)
+            plt.show()
+
+        #OLD CODE
         for epoch in train_iterator:
             if epoch == args.num_train_epochs-1:
                 final_epoch = True
