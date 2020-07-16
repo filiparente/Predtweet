@@ -809,7 +809,7 @@ def main():
             if epoch%25 == 1:
                 print(f'epoch: {epoch:3} loss: {single_loss.item():10.8f}')
         print(f'epoch: {epoch:3} loss: {single_loss.item():10.10f}')
-        
+        pdb.set_trace() 
         #Predict in test set
         fut_pred = len(dev_obs_seq)
 
