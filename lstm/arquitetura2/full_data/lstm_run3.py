@@ -106,114 +106,33 @@ class MyDataset(Dataset):
 
         return sample
 
-class Encoder(nn.Module):
-
-    def __init__(self, input_size, hidden_dim, batch_size, device, num_layers=1):
-        super(Encoder, self).__init__()
-
-        self.input_size = input_size
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.device = device
-        self.batch_size = batch_size
-        self.lstm = nn.LSTM(self.input_size, self.hidden_dim, num_layers=self.num_layers, dropout=0.2)
-        for name, param in self.lstm.named_parameters():
-            if 'bias' in name:
-                nn.init.constant_(param, 0.0)
-            elif 'weight' in name:
-                nn.init.xavier_normal_(param)
-        self.hidden = None
-        for name, param in self.lstm.named_parameters():
-            if 'bias' in name:
-                nn.init.constant_(param,0.0)
-            elif 'weight' in name:
-                nn.init.xavier_normal_(param)
-
-        self.hidden = None #(nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad = True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(device), requires_grad=True)) #None
-        self.output = None
-        self.device = device
-        #self.hidden = (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor), requires_grad=True))
-
-    def init_hidden(self, batch_size):
-        #return (torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device), #hidden state
-        #        torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)) #cell state
-       return (nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
-
-    def forward(self, inputs):
-        # Push through RNN layer (the ouput is irrelevant)
-        #if inputs.shape[1] != self.hidden[0].shape[1]: #different batch sizes
-        #    tuple_aux = (self.hidden[0][:,:inputs.shape[1],:].contiguous(), self.hidden[1][:,:inputs.shape[1],:].contiguous())
-        #    self.hidden = None
-        #    self.hidden = tuple_aux #BECAUSE TUPLES ARE IMMUTABLE
-
-        self.output, self.hidden = self.lstm(inputs, self.hidden)
-        return self.output, self.hidden
-
-class Decoder(nn.Module):
-
-    def __init__(self, hidden_dim, device, num_layers=1):
-        super(Decoder, self).__init__()
-        # input_size=1 since the output are single values
-        #self.lstm = nn.LSTM(1, hidden_dim, num_layers=num_layers, dropout=0.2)
-        self.out = nn.Linear(hidden_dim, 1)
-        for name,param in self.out.named_parameters():
-            if 'bias' in name:
-                nn.init.constant_(param,0.0)
-            elif 'weight' in name:
-                nn.init.xavier_normal_(param)
-        self.device = device
-
-    def forward(self, outputs, hidden, criterion):
-        seq_len, batch_size = outputs.shape
-        # Create initial start value/token
-        #input = torch.tensor([[0.0]] * batch_size, dtype=torch.float).to(self.device)
-        # Convert (batch_size, output_size) to (seq_len, batch_size, output_size)
-        #input = input.unsqueeze(0)
-
-        loss = 0
-        preds = []
-        #for i in range(seq_len):
-            # Push current input through LSTM: (seq_len=1, batch_size, input_size=1)
-            #output, hidden = self.lstm(input, hidden)
-            # Push the output of last step through linear layer; returns (batch_size, 1)
-            #output = self.out(output[-1])
-        #output = self.out(hidden)
-            # Generate input for next step by adding seq_len dimension (see above)
-            #input = output.unsqueeze(0)
-            # Compute loss between predicted value and true value
-        #if outputs.shape[1]!=1:
-        #    outputs = outputs.unsqueeze(0)
-
-            #loss += criterion(output, outputs[:, i].view(-1,1))
-        #loss = criterion(output.view(-1,1), outputs.view(-1,1))
-        for i in range(seq_len):
-            for j in range(batch_size):
-                output = self.out(hidden[j,i,:])
-                loss += criterion(output.view(-1,1), outputs[i,j].view(-1,1))
-                preds.append(output)
-        return loss, torch.cat(preds)
-        #return loss, output
-
 class LSTM(nn.Module):
     #input size: Corresponds to the number of features in the input. Though our sequence length is 12, for each month we have only 1 value i.e. total number of passengers, therefore the input size will be 1.
     #hidden layer size: Specifies the number of hidden layers along with the number of neurons in each layer. We will have one layer of 100 neurons.
     #output size: The number of items in the output, since we want to predict the number of passengers for 1 month in the future, the output size will be 1.´
 
-    def __init__(self, input_size=1, hidden_layer_size=100, output_size=1):
+    def __init__(self, device, input_size=1, hidden_layer_size=100, output_size=1, num_layers=1):
         super().__init__()
+        self.device = device
         self.hidden_layer_size = hidden_layer_size
+        self.num_layers = num_layers
 
         self.lstm = nn.LSTM(input_size, hidden_layer_size)
 
         self.linear = nn.Linear(hidden_layer_size, output_size)
 
-        self.hidden_cell = (torch.zeros(1,1,self.hidden_layer_size),
-                            torch.zeros(1,1,self.hidden_layer_size))
-
+        
     def forward(self, input_seq):
         lstm_out, self.hidden_cell = self.lstm(input_seq.view(len(input_seq) ,1, -1), self.hidden_cell)
         predictions = self.linear(lstm_out.view(len(input_seq), -1))
         return predictions[-1]
+
+    def init_hidden(self, batch_size):
+        #return (nn.Parameter(torch.randn(self.num_layers,batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
+
+        return (torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device), #hidden state
+                torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device)) #cell state
+       
 
 def set_seed(args,n_gpu):
     random.seed(args.seed)
@@ -294,7 +213,7 @@ def collate_fn_(batch):
    
     return batch[:,0], batch[:,1]
 
-def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_step, epoch, prefix="", store=True):
+def evaluate(args, model, val_obs_seq,  global_step, epoch, test_inputs, prefix=""):
     #pdb.set_trace()
     # Validation
     eval_output_dir = args.output_dir
@@ -304,7 +223,7 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     
     # Eval!
     print("***** Running evaluation {} *****".format(prefix))
-    num_eval_examples = eval_dataloader.dataset[0].shape[1]
+    num_eval_examples = len(val_obs_seq)
     print("  Num examples = %d", num_eval_examples)
     print("  Batch size = %d", 1)
 
@@ -313,63 +232,84 @@ def evaluate(args, encoder, decoder, eval_dataloader, criterion, device, global_
     preds = None
     out_label_ids = None
 
-    val_obs_seq = []
-    val_preds_seq = []
 
-    
-    batch = eval_dataloader.dataset
+    val_preds_seq = []
+    batch_size = args.batch_size
+    EMBEDDING_DIM = args.EMBEDDING_DIM
+    train_window = args.train_window
+    device = args.device
+    loss_function = args.loss_function
+    criterion = args.criterion
+    scaler = args.scaler
+
+    #first filter the last x values from the training set to predict the first  in the test set
+    #TODO: put this as input, and train_window also
+    # test_inputs = train_data_normalized[-train_window:].tolist()
+
 
 
     # Set our model to evaluation mode (as opposed to training mode) to evaluate loss on validation set
-    encoder = encoder.eval()   
-    decoder = decoder.eval()      
+    #encoder = encoder.eval()   
+    #decoder = decoder.eval() 
+    model.eval()     
 
-    trainX_sample, trainY_sample = batch
+    for i in range(num_eval_examples):
+        seq = torch.FloatTensor(test_inputs[-train_window:])
+
+        model.init_hidden(batch_size)
+
+        trainX_sample = np.reshape(seq,(len(seq),batch_size,EMBEDDING_DIM))
+
+
+        # Get our inputs ready for the network, that is, turn them into tensors
+        trainX_sample = torch.as_tensor(trainX_sample, dtype=torch.float).to(device)
+
+        # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
+        #trainX_sample = trainX_sample.transpose(1,0)
         
-    if store:
-        val_obs_seq=trainY_sample
+        # Run our forward pass
+        with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
+
+            # Do forward pass through encoder: get hidden state
+            #output, hidden = encoder(trainX_sample)
+
+            logits = model(trainX_sample)
+            val_preds_seq.append(logits)
+            
+            #Append the prediction
+            #test_inputs.append(model(seq).item())
+
+            #Append the true value (normalized)
+            trainY_sample = scaler.transform(np.array(val_obs_seq[i]).reshape(-1, 1))
+            trainY_sample = trainY_sample[0]
+
+            test_inputs.append(trainY_sample)
+            trainY_sample = torch.as_tensor(trainY_sample, dtype=torch.float).to(device)
 
 
-    # Get our inputs ready for the network, that is, turn them into tensors
-    trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
+            # Compute the loss
+            # Do forward pass through decoder (decoder gets hidden state from encoder)
+            #tmp_eval_loss, logits = decoder(trainY_sample, hidden, criterion)
+            #tmp_eval_loss, logits = decoder(trainY_sample, output, criterion)
+            #val_preds_seq.append(logits)
 
-    trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
+            tmp_eval_loss = loss_function(logits, trainY_sample)
+            eval_loss += tmp_eval_loss.mean().item()
+        nb_eval_steps += 1
 
-    # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
-    trainX_sample = trainX_sample.transpose(1,0)
-        
-    # Run our forward pass
-    #scores = model(trainX_sample)
-    with torch.no_grad(): #in evaluation we tell the model not to compute or store gradients, saving memory and speeding up validation
-        # Reset hidden state of encoder for current batch
-        # STATELESS LSTM:
-        #if encoder.hidden is None: #step==0:
-        #    encoder.hidden = encoder.init_hidden(trainX_sample.shape[1])
+        trainY_sample = trainY_sample.detach().cpu().numpy()
 
-        # Do forward pass through encoder: get hidden state
-        #hidden = encoder(trainX_sample)    
-        output, hidden = encoder(trainX_sample)
-        # Compute the loss
-        # Do forward pass through decoder (decoder gets hidden state from encoder)
-        #tmp_eval_loss, logits = decoder(trainY_sample, hidden, criterion)
-        tmp_eval_loss, logits = decoder(trainY_sample, output, criterion)
+        # Forward pass
+        if preds is None:
+            preds = logits.detach().cpu().numpy()
+            out_label_ids = trainY_sample
+        else:
+            #inverse transform the normalized predictions
+            #actual_predictions = scaler.inverse_transform(np.array(test_inputs[train_window:]).reshape(-1, 1))
+            actual_predictions = scaler.inverse_transform(np.array(val_preds_seq).reshape(-1, 1))
 
-        val_preds_seq.append(logits)
-
-        #print("Logits " + str(logits))
-        #print("Counts " + str(trainY_sample))
-        eval_loss += tmp_eval_loss.mean().item()
-    nb_eval_steps += 1
-
-    trainY_sample = trainY_sample.detach().cpu().numpy()
-
-    # Forward pass
-    if preds is None:
-        preds = logits.detach().cpu().numpy()
-        out_label_ids = trainY_sample
-    else:
-        preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-        out_label_ids = np.append(out_label_ids, trainY_sample, axis=0)
+            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+            out_label_ids = np.append(out_label_ids, trainY_sample, axis=0)
 
     eval_loss = eval_loss / nb_eval_steps #it is the same as the mse! repeated code... but oh well!
 
@@ -414,7 +354,7 @@ def main():
     #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
     parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-250/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")    #r'C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/lstm/fit_results/checkpoint-200/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
     parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--num_train_epochs", default=1500, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--num_train_epochs", default=2, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
@@ -482,11 +422,11 @@ def main():
     print("Observation sequence stats: min " + str(np.min(obs_seq)) + " max " + str(np.max(obs_seq)) + " mean " + str(np.mean(obs_seq)) + " std " + str(np.std(obs_seq)))
 
 
-    plt.figure(figsize=(15,8))
-    plt.title("Observation sequence before and after removing initial small counts")
-    plt.xlabel("t")
-    plt.ylabel("Observation sequence")
-    plt.plot(obs_seq)
+    #plt.figure(figsize=(15,8))
+    #plt.title("Observation sequence before and after removing initial small counts")
+    #plt.xlabel("t")
+    #plt.ylabel("Observation sequence")
+    #plt.plot(obs_seq)
 
     #Cut initial small counts
     
@@ -509,7 +449,7 @@ def main():
     obs_seq = obs_seq[idx2+1:]
     X = X[:, idx2+1:]
 
-    plt.plot(obs_seq)
+    #plt.plot(obs_seq)
     #plt.show()       
             
     all_obs_seq = obs_seq
@@ -689,37 +629,32 @@ def main():
         print('No GPU available, using the CPU instead.')
         device = torch.device("cpu")
 
-    #Create model
-    encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
-    decoder = Decoder(HIDDEN_DIM, device)
-    
     #create model and define loss function and optimizer
-    model = LSTM()
+    model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
+        
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    #Put models in gpu
-    encoder.cuda()
-    decoder.cuda()
+    #Put model in gpu
     model.cuda()
-
-    # Create optimizers for encoder and decoder
-    encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
-    decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate)
 
     # Check if saved optimizers exist    
     
-    if os.path.isfile(os.path.join(args.model_name_or_path, "encoder_optimizer.pt")) and os.path.isfile(
-        os.path.join(args.model_name_or_path, "decoder_optimizer.pt")
-    ):
+    if os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt")):
         # Load in optimizers' states
-        encoder_optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "encoder_optimizer.pt")))
-        decoder_optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "decoder_optimizer.pt")))
+        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
        
     #Regression criterion: mean squared error loss
     criterion = nn.MSELoss()
     global_step = 0
     epoch = 0
+
+    args.EMBEDDING_DIM = EMBEDDING_DIM
+    args.device = device
+    args.train_window = train_window
+    args.criterion = criterion
+    args.loss_function = loss_function
+    args.scaler = scaler
     
     if not args.evaluate_only:
         # Train!
@@ -758,9 +693,8 @@ def main():
             print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
             
             #Load encoder and decoder states
-            encoder.load_state_dict(torch.load(args.model_name_or_path+"encoder.pth"))
-            decoder.load_state_dict(torch.load(args.model_name_or_path+"decoder.pth"))
-
+            model.load_state_dict(torch.load(args.model_name_or_path+"model.pth"))
+            
             best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
             if os.path.exists(best_model_dir+ "best_model/"):
                 if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
@@ -778,9 +712,7 @@ def main():
         tr_loss, logging_loss = 0.0, 0.0
         n_eval = 1
 
-        #model.zero_grad()
-        encoder.zero_grad()
-        decoder.zero_grad()
+        model.zero_grad()
 
         # trange is a tqdm wrapper around the normal python range
         train_iterator = trange(
@@ -789,67 +721,7 @@ def main():
 
         set_seed(args, n_gpu)  # Added here for reproductibility
 
-        #Training
-        for epoch in train_iterator:
-            for seq, labels in train_inout_seq:
-                optimizer.zero_grad()
-                model.hidden_cell = (torch.zeros(1, 1, HIDDEN_DIM).to(device),
-                                torch.zeros(1, 1, HIDDEN_DIM).to(device))
-                
-                #(seq_len, batch_size, input_size)
-                seq = torch.tensor(np.reshape(seq,(len(seq),1,1)), dtype=torch.float).to(device)
-                labels = torch.tensor(labels).to(device)
-
-                y_pred = model(seq)
-
-                single_loss = loss_function(y_pred, labels)
-                single_loss.backward()
-                optimizer.step()
-
-            if epoch%25 == 1:
-                print(f'epoch: {epoch:3} loss: {single_loss.item():10.8f}')
-        print(f'epoch: {epoch:3} loss: {single_loss.item():10.10f}')
-        pdb.set_trace() 
-        #Predict in test set
-        fut_pred = len(dev_obs_seq)
-
-        #first filter the last 12 values from the training set to predict the first month in the test set
-        test_inputs = train_data_normalized[-train_window:].tolist()
-
-        # Set our model to evaluation mode (as opposed to training mode)
-        encoder = encoder.eval()
-        decoder = decoder.eval() 
-
-
-        for i in range(fut_pred):
-            seq = torch.FloatTensor(test_inputs[-train_window:])
-            with torch.no_grad():
-                encoder.hidden = (torch.zeros(1, 1, HIDDEN_DIM),
-                                torch.zeros(1, 1, HIDDEN_DIM))
-                #Append the prediction
-                test_inputs.append(encoder(seq).item())
-
-                #Append the true value (however it is not normalized)
-                #test_inputs.append(true_obs_seq(i))
-
-            print(test_inputs[fut_pred:])
-
-            #inverse transform the normalized predictions
-            actual_predictions = scaler.inverse_transform(np.array(test_inputs[train_window:] ).reshape(-1, 1))
-            print(actual_predictions)
-
-            #plot predictions
-            x = np.arange(132, 144, 1)
-
-            plt.title('Month vs Passenger')
-            plt.ylabel('Total Passengers')
-            plt.grid(True)
-            plt.autoscale(axis='x', tight=True)
-            plt.plot(dev_obs_seq)
-            plt.plot(x,actual_predictions)
-            plt.show()
-
-        #OLD CODE
+        
         for epoch in train_iterator:
             if epoch == args.num_train_epochs-1:
                 final_epoch = True
@@ -862,113 +734,122 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
 
             #encoder.hidden = encoder.init_hidden(batch_size)
-            encoder.hidden = encoder.init_hidden(1)
+            #encoder.hidden = encoder.init_hidden(1)
             
-            batch = train_dataloader.dataset
 
             # Set our model to training mode (as opposed to evaluation mode)
-            encoder = encoder.train()
-            decoder = decoder.train() 
+            model = model.train()
 
                  
-            trainX_sample, trainY_sample = batch
+            step = 0
+            for seq,labels in train_inout_seq:
 
-            # Get our inputs ready for the network, that is, turn them into tensors
-            trainX_sample = torch.tensor(trainX_sample, dtype=torch.float).to(device)
-            #if trainX_sample.shape[0] == 1:
-            #    trainX_sample = trainX_sample.unsqueeze(0)
-            trainY_sample = torch.tensor(trainY_sample, dtype=torch.float).to(device)
-            
-            # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
-            trainX_sample = trainX_sample.transpose(1,0)
+                
+                model.hidden_cell = model.init_hidden(batch_size)
+
+                trainX_sample = np.reshape(seq,(len(seq),batch_size,EMBEDDING_DIM))
+                trainY_sample = labels
+
+                # Get our inputs ready for the network, that is, turn them into tensors
+                trainX_sample = torch.as_tensor(trainX_sample, dtype=torch.float).to(device)
+                #if trainX_sample.shape[0] == 1:
+                #    trainX_sample = trainX_sample.unsqueeze(0)
+                trainY_sample = torch.as_tensor(trainY_sample, dtype=torch.float).to(device)
+                
+                # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
+                #trainX_sample = trainX_sample.transpose(1,0)
 
 
-            # Zero gradients of both optimizers (by default they accumulate)
-            encoder_optimizer.zero_grad()
-            decoder_optimizer.zero_grad()
+                # Zero gradients of optimizer (by default they accumulate)
+                optimizer.zero_grad()
 
                        
-            # Do forward pass through encoder: get hidden state
-            #hidden = encoder(trainX_sample)    
-            output, hidden = encoder(trainX_sample)
+                # Do forward pass through encoder: get hidden state    
+                #output, hidden = encoder(trainX_sample)
+                preds = model(trainX_sample)
 
-            # Compute the loss
-            # Do forward pass through decoder (decoder gets hidden state from encoder)
-            #loss, preds = decoder(trainY_sample, hidden, criterion)
-            loss, preds = decoder(trainY_sample, output, criterion)
+                # Compute the loss
+                # Do forward pass through decoder (decoder gets hidden state from encoder)
+                #loss, preds = decoder(trainY_sample, output, criterion)
+                loss = loss_function(preds, trainY_sample)
 
-            if n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu parallel training
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
+                if n_gpu > 1:
+                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                if args.gradient_accumulation_steps > 1:
+                    loss = loss / args.gradient_accumulation_steps
 
-            # Backpropagation, compute gradients 
-            loss.backward(retain_graph=True)
+                # Backpropagation, compute gradients 
+                loss.backward(retain_graph=True)
          
-            #Store 
-            train_loss_set.append(loss.item())
+                #Store 
+                train_loss_set.append(loss.item())
 
-            if final_epoch:
-                train_preds_seq = preds.view(-1,1)
-        
-            # Update tracking variables
-            tr_loss += loss.item()
-            nb_tr_examples += trainX_sample.size(1) #b_input.size(0)
-            nb_tr_steps += 1
+                if final_epoch:
+                    train_preds_seq.append(preds.view(-1,1))
+            
+                # Update tracking variables
+                tr_loss += loss.item()
+                nb_tr_examples += trainX_sample.size(1) #b_input.size(0)
+                nb_tr_steps += 1
 
-            #CLIP THE GRADIENTS?
-            torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
-            torch.nn.utils.clip_grad_norm_(decoder.parameters(), args.max_grad_norm)
+                #CLIP THE GRADIENTS?
+                #torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
+                #torch.nn.utils.clip_grad_norm_(decoder.parameters(), args.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-            # Update parameters and take a step using the computed gradient
-            encoder_optimizer.step()
-            decoder_optimizer.step()
 
-            encoder.zero_grad()
-            decoder.zero_grad()
-            global_step += 1
-            #print("Global step nº: " + str(global_step))
+                # Update parameters and take a step using the computed gradient
+                #encoder_optimizer.step()
+                #decoder_optimizer.step()
+                optimizer.step()
 
-            if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
-                # Save model checkpoint
-                if save_best:
-                    output_dir = os.path.join(args.output_dir, "best_model")
+                #encoder.zero_grad()
+                #decoder.zero_grad()
+                model.zero_grad()
+                global_step += 1
+                #print("Global step nº: " + str(global_step))
+
+                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
+                    # Save model checkpoint
+                    if save_best:
+                        output_dir = os.path.join(args.output_dir, "best_model")
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
+                        torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
+                        torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
+                        save_best = False
+                    else:
+                        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
-                    torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
-                    torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
-                    torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
-                    save_best = False
-                else:
-                    output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
 
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
+                    #torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
+                    #torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
+                    torch.save(model.state_dict(), output_dir+"/model.pth")
+                    torch.save(args, os.path.join(output_dir, "training_args.bin"))
 
-                torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
-                torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
+                    if final_epoch: #save train_loss_set, val_loss_set
+                        torch.save(train_loss_set, output_dir+"/train_loss_set.pt")
+                        torch.save(val_loss_set, output_dir+"/val_loss_set.pt") 
 
-                torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                    print("Saving model checkpoint to %s", output_dir)
 
-                if final_epoch: #save train_loss_set, val_loss_set
-                    torch.save(train_loss_set, output_dir+"/train_loss_set.pt")
-                    torch.save(val_loss_set, output_dir+"/val_loss_set.pt") 
+                    #torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
+                    #torch.save(decoder_optimizer.state_dict(), os.path.join(output_dir, "decoder_optimizer.pt"))
+                    torch.save(optimizer.state_dict(), os.path.join(output_dir,"optimizer.pt"))
+                    print("Saving optimizers' states to %s", output_dir)
 
-                print("Saving model checkpoint to %s", output_dir)
+                # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
+                #if global_step%args.logging_steps==0:#step%args.logging_steps==0:
+                #    b = list(model.parameters())[199].clone()
+                #    b2 = list(model.parameters())[200].clone()
 
-                torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
-                torch.save(decoder_optimizer.state_dict(), os.path.join(output_dir, "decoder_optimizer.pt"))
-                print("Saving optimizers' states to %s", output_dir)
-
-            # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-            #if global_step%args.logging_steps==0:#step%args.logging_steps==0:
-            #    b = list(model.parameters())[199].clone()
-            #    b2 = list(model.parameters())[200].clone()
-
-            #    print("Check if the classifier layer weights are being updated:") #logger.info
-            #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
-            #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
-        
+                #    print("Check if the classifier layer weights are being updated:") #logger.info
+                #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
+                #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
+                step += 1
             #Evaluate at the end of the epoch
             if args.logging_steps>0 and epoch%args.logging_steps==0: 
                 if nb_tr_steps == 0:
@@ -981,14 +862,11 @@ def main():
                 logs["loss"] = str(loss_scalar)
                 logging_loss = tr_loss
 
-                if args.evaluate_during_training: 
-                    if first_eval: #first evaluation: store validation observation sequence, do not need to overwrite it because it is fixed
-                        results, val_obs_seq, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=True)
-
-                        first_eval = False
-                    else:
-                        results, _, val_preds_seq = evaluate(args, encoder, decoder, dev_dataloader, criterion, device, global_step, epoch, prefix = str(n_eval), store=False)
-                        
+                if args.evaluate_during_training:    
+                    test_inputs = train_data_normalized[-train_window:].tolist()
+                    
+                    results, _, val_preds_seq = evaluate(args, model, dev_obs_seq,  global_step, epoch, test_inputs, prefix = str(n_eval))
+    
                     n_eval += 1
                     for key, value in results.items():
                         eval_key = "eval_{}".format(key)
@@ -998,7 +876,7 @@ def main():
                         save_best = True
                         best_mse_eval = results["mse"]
                         best_val_preds_seq = val_preds_seq
-                        best_val_hidden_states = encoder.hidden
+                        best_val_hidden_states = model.hidden_cell #encoder.hidden
                         
                     #Store 
                     val_loss_set.append((results["mse"], global_step, epoch)) 
@@ -1037,7 +915,7 @@ def main():
         plt.title("Train observation sequence: real and predicted")
         plt.xlabel("Sample")
         plt.ylabel("Count")
-        obs_plot, = plt.plot(np.concatenate(train_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+        obs_plot, = plt.plot(train_obs_seq, color='blue', label='Train observation sequence (real)')
         pred_plot, = plt.plot(torch.cat(train_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
@@ -1050,8 +928,8 @@ def main():
         plt.title("Validation observation sequence: real and predicted")
         plt.xlabel("Sample")
         plt.ylabel("Count")
-        obs_plot, = plt.plot(np.concatenate(val_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
-        pred_plot, = plt.plot(torch.cat(best_val_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+        obs_plot, = plt.plot(dev_obs_seq, color='blue', label='Train observation sequence (real)')
+        pred_plot, = plt.plot(scaler.transform(torch.cat(best_val_preds_seq).detach().cpu().numpy().reshape(-1,1)), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
 
@@ -1064,20 +942,27 @@ def main():
         best_model_dir = os.path.join(args.output_dir, "best_model/")
         if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
             #Create encoder and decoder models
-            best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
-            best_decoder = Decoder(HIDDEN_DIM, device)
+            #best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
+            #best_decoder = Decoder(HIDDEN_DIM, device)
+            model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
 
             #Put models in gpu
-            best_encoder.cuda()
-            best_decoder.cuda()
+            #best_encoder.cuda()
+            #best_decoder.cuda()
+            model.cuda()
          
             
             #Load encoder and decoder states
-            best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
-            best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
+            #best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
+            #best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
+            model.load_state_dict(torch.load(best_model_dir+"model.pth"))
+
             #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
-            best_encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt")
-            results, test_obs_seq, test_preds_seq = evaluate(args, best_encoder, best_decoder, test_dataloader, criterion, device, global_step, epoch, prefix = 'Test', store=True)          
+            model.hidden_cell = torch.load(best_model_dir+"best_val_hidden_states.pt")
+            test_inputs = scaler.transform(dev_obs_seq[-train_window:].reshape(-1,1)).tolist()
+            results, test_obs_seq, test_preds_seq = evaluate(args, model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
+
+    
             logs = {}
             for key, value in results.items():
                 eval_key = "eval_{}".format(key)
@@ -1088,7 +973,7 @@ def main():
     plt.title("Test observation sequence: real and predicted")
     plt.xlabel("Sample")
     plt.ylabel("Count")
-    obs_plot, = plt.plot(np.concatenate(test_obs_seq).ravel().tolist(), color='blue', label='Train observation sequence (real)')
+    obs_plot, = plt.plot(test_obs_seq, color='blue', label='Train observation sequence (real)')
     pred_plot, = plt.plot(torch.cat(test_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
     plt.legend(handles=[obs_plot, pred_plot])
     #plt.show()
