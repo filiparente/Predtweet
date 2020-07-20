@@ -274,7 +274,7 @@ def evaluate(args, model, val_obs_seq,  global_step, epoch, test_inputs, prefix=
             #output, hidden = encoder(trainX_sample)
 
             logits = model(trainX_sample)
-            val_preds_seq.append(logits)
+            val_preds_seq.append(scaler.inverse_transform(logits.detach().cpu().numpy().reshape(-1,1)))
             
             #Append the prediction
             #test_inputs.append(model(seq).item())
@@ -602,7 +602,7 @@ def main():
         EMBEDDING_DIM = 768 #number of features in data points
     else:
         EMBEDDING_DIM = 1
-    HIDDEN_DIM = 100 #hidden dimension of the LSTM: number of nodes
+    HIDDEN_DIM = 128 #hidden dimension of the LSTM: number of nodes
 
     num_train_optimization_steps = int(num_train_examples/gradient_accumulation_steps)*epochs
 
@@ -889,7 +889,7 @@ def main():
             if args.max_steps > 0 and global_step > args.max_steps:
                 train_iterator.close()
                 break
-
+       
         # Plot training loss (mse)
         plt.figure(figsize=(15,8))
         plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
@@ -916,7 +916,7 @@ def main():
         plt.xlabel("Sample")
         plt.ylabel("Count")
         obs_plot, = plt.plot(train_obs_seq, color='blue', label='Train observation sequence (real)')
-        pred_plot, = plt.plot(torch.cat(train_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+        pred_plot, = plt.plot(scaler.inverse_transform(torch.cat(train_preds_seq).detach().cpu().numpy().reshape(-1,1)).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
 
@@ -929,14 +929,13 @@ def main():
         plt.xlabel("Sample")
         plt.ylabel("Count")
         obs_plot, = plt.plot(dev_obs_seq, color='blue', label='Train observation sequence (real)')
-        pred_plot, = plt.plot(scaler.transform(torch.cat(best_val_preds_seq).detach().cpu().numpy().reshape(-1,1)), color='orange', label='Train observation sequence (predicted)')
+        pred_plot, = plt.plot(np.concatenate(best_val_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
 
         plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq.png', bbox_inches='tight')
 
     # Check accuracy in test set
-
     # Load best model
     if args.test_acc:
         best_model_dir = os.path.join(args.output_dir, "best_model/")
@@ -973,8 +972,8 @@ def main():
     plt.title("Test observation sequence: real and predicted")
     plt.xlabel("Sample")
     plt.ylabel("Count")
-    obs_plot, = plt.plot(test_obs_seq, color='blue', label='Train observation sequence (real)')
-    pred_plot, = plt.plot(torch.cat(test_preds_seq).detach().cpu().numpy().ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+    obs_plot, = plt.plot(test_obs_seq, color='blue', label='Train observation sequence (real)') 
+    pred_plot, = plt.plot(np.concatenate(test_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
     plt.legend(handles=[obs_plot, pred_plot])
     #plt.show()
 
