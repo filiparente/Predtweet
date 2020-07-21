@@ -38,11 +38,12 @@ import pdb
 from scipy.io import loadmat
 import scipy
 import pandas as pd
+from ast import literal_eval
 
-torch.manual_seed(1)
+#torch.manual_seed(1)
 
 # fix random seed for reproducibility
-np.random.seed(7)
+#np.random.seed(7)
 
 
 class MyCollator(object):
@@ -337,35 +338,7 @@ def evaluate(args, model, val_obs_seq,  global_step, epoch, test_inputs, prefix=
 
     return results, val_obs_seq, val_preds_seq
 
-def main():
-    #Parser
-    parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
-    #C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/1.0/"
-    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/server/1.0/", help="OS path to the folder where the embeddings are located.")
-    #r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/", help="OS path to the folder where the embeddings are located.")
-    parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
-    parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
-    parser.add_argument('--seq_len', type = int, default=50, help='Input dimension (number of timestamps).')
-    parser.add_argument('--batch_size', type = int, default=1, help='How many batches of sequence length inputs per iteration.')
-    parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
-    parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
-    #parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
-    #parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
-    #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
-    parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-250/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")    #r'C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/lstm/fit_results/checkpoint-200/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
-    parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--num_train_epochs", default=2, type=int, help="Total number of training epochs to perform." )
-    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X updates steps.")
-    parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
-    parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
-    parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
-    parser.add_argument("--evaluate_only", action="store_true", help="Run only evaluation on validation and test sets with the best model found in training.")
-    parser.add_argument("--use_features", action="store_true", help="If we want to consider the textual features (from BERT/TFIDF) or only the counts.")
-    
-    args = parser.parse_args()
+def main(args):
     print(args)
 
     path = args.full_dataset_path
@@ -375,7 +348,10 @@ def main():
     batch_size = args.batch_size
     train_dev_test_split = True
     normalize = True
-    percentages = [0.8, 0.1, 0.1]
+    if isinstance(args.percentages, str):
+        percentages = literal_eval(args.percentages)
+    else:
+        percentages = args.percentages#[0.8, 0.1, 0.1]
 
     # Load data
     os.chdir(path)
@@ -550,7 +526,7 @@ def main():
 
         #sequence/labeling
         #input sequence length for training is 24. (1h data, 24h memory)
-        train_window = 24
+        train_window = args.seq_len
 
         train_inout_seq = create_inout_sequences(train_data_normalized, train_window)
 
@@ -638,12 +614,6 @@ def main():
     #Put model in gpu
     model.cuda()
 
-    # Check if saved optimizers exist    
-    
-    if os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt")):
-        # Load in optimizers' states
-        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
-       
     #Regression criterion: mean squared error loss
     criterion = nn.MSELoss()
     global_step = 0
@@ -655,344 +625,384 @@ def main():
     args.criterion = criterion
     args.loss_function = loss_function
     args.scaler = scaler
+
+    # Check if saved optimizers exist    
     
-    if not args.evaluate_only:
-        # Train!
-        print("***** Running training *****")
-        print("  Num examples = %d", num_train_examples)
-        print("  Num Epochs = %d", epochs)
-        print("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
-        print("  Total optimization steps = %d", num_train_optimization_steps)
+    if os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt")):
+        # Load in optimizers' states
+        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
 
-        # Store our loss and accuracy in the train set for plotting
-        train_loss_set = []
+    #Train with 10 different initializations   
+    n_montecarlo = 10
 
-        # Store our loss and accuracy in the validation set for plotting
-        val_loss_set = []
+    for montecarlo in range(n_montecarlo):
+        if not args.evaluate_only:
+            # Train!
+            print("***** Running training *****")
+            print("  Num examples = %d", num_train_examples)
+            print("  Num Epochs = %d", epochs)
+            print("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+            print("  Total optimization steps = %d", num_train_optimization_steps)
 
-        global_step = 0
-        epochs_trained = 0
-        steps_trained_in_current_epoch = 0
+            # Store our loss and accuracy in the train set for plotting
+            train_loss_set = []
 
-        best_mse_eval = np.inf
-        save_best = False
-        final_epoch = False
-        first_eval = True
-        best_val_preds_seq = []
+            # Store our loss and accuracy in the validation set for plotting
+            val_loss_set = []
 
-        # Check if continuing training from a checkpoint
-        if os.path.exists(args.model_name_or_path): #Path to pre-trained model
-            # set global_step to global_step of last saved checkpoint from model path
-            global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
-            epochs_trained = global_step // (num_train_examples // gradient_accumulation_steps)
-            steps_trained_in_current_epoch = global_step % (num_train_examples // gradient_accumulation_steps)
+            global_step = 0
+            epochs_trained = 0
+            steps_trained_in_current_epoch = 0
 
-            print("  Continuing training from checkpoint, will skip to saved global_step")
-            print("  Continuing training from epoch %d", epochs_trained)
-            print("  Continuing training from global step %d", global_step)
-            print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
-            
-            #Load encoder and decoder states
-            model.load_state_dict(torch.load(args.model_name_or_path+"model.pth"))
-            
-            best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
-            if os.path.exists(best_model_dir+ "best_model/"):
-                if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
-                    #Load best_mse_eval
-                    best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval.bin")
+            best_mse_eval = np.inf
+            save_best = False
+            final_epoch = False
+            first_eval = True
+            best_val_preds_seq = []
 
-                if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq.pt"):
-                    #Load best_val_preds_seq
-                    best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq.pt")
-            if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
-                train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
-            if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
-                val_loss_set = torch.load(args.model_name_or_path+"val_loss_set.pt")
+            # Check if continuing training from a checkpoint
+            if os.path.exists(args.model_name_or_path): #Path to pre-trained model
+                # set global_step to global_step of last saved checkpoint from model path
+                global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
+                epochs_trained = global_step // (num_train_examples // gradient_accumulation_steps)
+                steps_trained_in_current_epoch = global_step % (num_train_examples // gradient_accumulation_steps)
 
-        tr_loss, logging_loss = 0.0, 0.0
-        n_eval = 1
-
-        model.zero_grad()
-
-        # trange is a tqdm wrapper around the normal python range
-        train_iterator = trange(
-            epochs_trained, epochs, desc="Epoch",
-        )
-
-        set_seed(args, n_gpu)  # Added here for reproductibility
-
-        
-        for epoch in train_iterator:
-            if epoch == args.num_train_epochs-1:
-                final_epoch = True
-                train_preds_seq = []
-
-            epoch_iterator = tqdm(train_dataloader, desc="Iteration") 
-
-            # Tracking variables
-            tr_loss = 0
-            nb_tr_examples, nb_tr_steps = 0, 0
-
-            #encoder.hidden = encoder.init_hidden(batch_size)
-            #encoder.hidden = encoder.init_hidden(1)
-            
-
-            # Set our model to training mode (as opposed to evaluation mode)
-            model = model.train()
-
-                 
-            step = 0
-            for seq,labels in train_inout_seq:
-
+                print("  Continuing training from checkpoint, will skip to saved global_step")
+                print("  Continuing training from epoch %d", epochs_trained)
+                print("  Continuing training from global step %d", global_step)
+                print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
                 
-                model.hidden_cell = model.init_hidden(batch_size)
-
-                trainX_sample = np.reshape(seq,(len(seq),batch_size,EMBEDDING_DIM))
-                trainY_sample = labels
-
-                # Get our inputs ready for the network, that is, turn them into tensors
-                trainX_sample = torch.as_tensor(trainX_sample, dtype=torch.float).to(device)
-                #if trainX_sample.shape[0] == 1:
-                #    trainX_sample = trainX_sample.unsqueeze(0)
-                trainY_sample = torch.as_tensor(trainY_sample, dtype=torch.float).to(device)
+                #Load encoder and decoder states
+                model.load_state_dict(torch.load(args.model_name_or_path+"model.pth"))
                 
-                # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
-                #trainX_sample = trainX_sample.transpose(1,0)
+                best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
+                if os.path.exists(best_model_dir+ "best_model/"):
+                    if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
+                        #Load best_mse_eval
+                        best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval.bin")
 
+                    if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq.pt"):
+                        #Load best_val_preds_seq
+                        best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq.pt")
+                if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
+                    train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
+                if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
+                    val_loss_set = torch.load(args.model_name_or_path+"val_loss_set.pt")
 
-                # Zero gradients of optimizer (by default they accumulate)
-                optimizer.zero_grad()
+            tr_loss, logging_loss = 0.0, 0.0
+            n_eval = 1
 
-                       
-                # Do forward pass through encoder: get hidden state    
-                #output, hidden = encoder(trainX_sample)
-                preds = model(trainX_sample)
+            model.zero_grad()
 
-                # Compute the loss
-                # Do forward pass through decoder (decoder gets hidden state from encoder)
-                #loss, preds = decoder(trainY_sample, output, criterion)
-                loss = loss_function(preds, trainY_sample)
+            # trange is a tqdm wrapper around the normal python range
+            train_iterator = trange(
+                epochs_trained, epochs, desc="Epoch",
+            )
 
-                if n_gpu > 1:
-                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
-                if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps
+            set_seed(args, n_gpu)  # Added here for reproductibility
 
-                # Backpropagation, compute gradients 
-                loss.backward(retain_graph=True)
-         
-                #Store 
-                train_loss_set.append(loss.item())
-
-                if final_epoch:
-                    train_preds_seq.append(preds.view(-1,1))
             
-                # Update tracking variables
-                tr_loss += loss.item()
-                nb_tr_examples += trainX_sample.size(1) #b_input.size(0)
-                nb_tr_steps += 1
+            for epoch in train_iterator:
+                if epoch == args.num_train_epochs-1:
+                    final_epoch = True
+                    train_preds_seq = []
 
-                #CLIP THE GRADIENTS?
-                #torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
-                #torch.nn.utils.clip_grad_norm_(decoder.parameters(), args.max_grad_norm)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                epoch_iterator = tqdm(train_dataloader, desc="Iteration") 
+
+                # Tracking variables
+                tr_loss = 0
+                nb_tr_examples, nb_tr_steps = 0, 0
+
+                #encoder.hidden = encoder.init_hidden(batch_size)
+                #encoder.hidden = encoder.init_hidden(1)
+                
+
+                # Set our model to training mode (as opposed to evaluation mode)
+                model = model.train()
+
+                    
+                step = 0
+                for seq,labels in train_inout_seq:
+
+                    
+                    model.hidden_cell = model.init_hidden(batch_size)
+
+                    trainX_sample = np.reshape(seq,(len(seq),batch_size,EMBEDDING_DIM))
+                    trainY_sample = labels
+
+                    # Get our inputs ready for the network, that is, turn them into tensors
+                    trainX_sample = torch.as_tensor(trainX_sample, dtype=torch.float).to(device)
+                    #if trainX_sample.shape[0] == 1:
+                    #    trainX_sample = trainX_sample.unsqueeze(0)
+                    trainY_sample = torch.as_tensor(trainY_sample, dtype=torch.float).to(device)
+                    
+                    # Convert (batch_size, seq_len, input_size) to (seq_len, batch_size, input_size)
+                    #trainX_sample = trainX_sample.transpose(1,0)
 
 
-                # Update parameters and take a step using the computed gradient
-                #encoder_optimizer.step()
-                #decoder_optimizer.step()
-                optimizer.step()
+                    # Zero gradients of optimizer (by default they accumulate)
+                    optimizer.zero_grad()
 
-                #encoder.zero_grad()
-                #decoder.zero_grad()
-                model.zero_grad()
-                global_step += 1
-                #print("Global step nº: " + str(global_step))
+                        
+                    # Do forward pass through encoder: get hidden state    
+                    #output, hidden = encoder(trainX_sample)
+                    preds = model(trainX_sample)
 
-                if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
-                    # Save model checkpoint
-                    if save_best:
-                        output_dir = os.path.join(args.output_dir, "best_model")
+                    # Compute the loss
+                    # Do forward pass through decoder (decoder gets hidden state from encoder)
+                    #loss, preds = decoder(trainY_sample, output, criterion)
+                    loss = loss_function(preds, trainY_sample)
+
+                    if n_gpu > 1:
+                        loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                    if args.gradient_accumulation_steps > 1:
+                        loss = loss / args.gradient_accumulation_steps
+
+                    # Backpropagation, compute gradients 
+                    loss.backward(retain_graph=True)
+            
+                    #Store 
+                    train_loss_set.append(loss.item())
+
+                    if final_epoch:
+                        train_preds_seq.append(preds.view(-1,1))
+                
+                    # Update tracking variables
+                    tr_loss += loss.item()
+                    nb_tr_examples += trainX_sample.size(1) #b_input.size(0)
+                    nb_tr_steps += 1
+
+                    #CLIP THE GRADIENTS?
+                    #torch.nn.utils.clip_grad_norm_(encoder.parameters(), args.max_grad_norm)
+                    #torch.nn.utils.clip_grad_norm_(decoder.parameters(), args.max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+
+
+                    # Update parameters and take a step using the computed gradient
+                    #encoder_optimizer.step()
+                    #decoder_optimizer.step()
+                    optimizer.step()
+
+                    #encoder.zero_grad()
+                    #decoder.zero_grad()
+                    model.zero_grad()
+                    global_step += 1
+                    #print("Global step nº: " + str(global_step))
+
+                    if args.save_steps>0 and ((global_step%args.save_steps==0 or save_best) or (final_epoch and step==0)):
+                        # Save model checkpoint
+                        if save_best:
+                            output_dir = os.path.join(args.output_dir, "best_model")
+                            if not os.path.exists(output_dir):
+                                os.makedirs(output_dir)
+                            torch.save(best_mse_eval, output_dir+'/best_mse_eval_mc' + str(montecarlo) + '.bin')
+                            torch.save(best_val_preds_seq, output_dir+'/best_val_preds_seq_mc' + str(montecarlo)+'.pt')
+                            torch.save(best_val_hidden_states, output_dir+'/best_val_hidden_states_mc' + str(montecarlo)+'.pt")
+                            save_best = False
+                        else:
+                            output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+
                         if not os.path.exists(output_dir):
                             os.makedirs(output_dir)
-                        torch.save(best_mse_eval, output_dir+"/best_mse_eval.bin")
-                        torch.save(best_val_preds_seq, output_dir+"/best_val_preds_seq.pt")
-                        torch.save(best_val_hidden_states, output_dir+"/best_val_hidden_states.pt")
-                        save_best = False
-                    else:
-                        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
 
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
+                        #torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
+                        #torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
+                        torch.save(model.state_dict(), output_dir+'/model_mc'+str(montecarlo)+'.pth')
+                        torch.save(args, os.path.join(output_dir, 'training_args_mc'+str(montecarlo)+'.bin'))
 
-                    #torch.save(encoder.state_dict(), output_dir+"/encoder.pth")
-                    #torch.save(decoder.state_dict(), output_dir+"/decoder.pth")
-                    torch.save(model.state_dict(), output_dir+"/model.pth")
-                    torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                        if final_epoch: #save train_loss_set, val_loss_set
+                            torch.save(train_loss_set, output_dir+'/train_loss_set_mc' + str(montecarlo)+'.pt')
+                            torch.save(val_loss_set, output_dir+'/val_loss_set_mc' + str(montecarlo)+'.pt') 
 
-                    if final_epoch: #save train_loss_set, val_loss_set
-                        torch.save(train_loss_set, output_dir+"/train_loss_set.pt")
-                        torch.save(val_loss_set, output_dir+"/val_loss_set.pt") 
+                        print("Saving model checkpoint to %s", output_dir)
 
-                    print("Saving model checkpoint to %s", output_dir)
+                        #torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
+                        #torch.save(decoder_optimizer.state_dict(), os.path.join(output_dir, "decoder_optimizer.pt"))
+                        torch.save(optimizer.state_dict(), os.path.join(output_dir,'optimizer_mc' + str(montecarlo)+'.pt'))
+                        print("Saving optimizers' states to %s", output_dir)
 
-                    #torch.save(encoder_optimizer.state_dict(), os.path.join(output_dir, "encoder_optimizer.pt"))
-                    #torch.save(decoder_optimizer.state_dict(), os.path.join(output_dir, "decoder_optimizer.pt"))
-                    torch.save(optimizer.state_dict(), os.path.join(output_dir,"optimizer.pt"))
-                    print("Saving optimizers' states to %s", output_dir)
+                    # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
+                    #if global_step%args.logging_steps==0:#step%args.logging_steps==0:
+                    #    b = list(model.parameters())[199].clone()
+                    #    b2 = list(model.parameters())[200].clone()
 
-                # PARA CONFIRMAR SE OS PESOS ESTAVAM A SER ALTERADOS OU NAO: 199 e o peso W e 200 e o peso b (bias) da layer de linear de classificacao/regressao: WX+b
-                #if global_step%args.logging_steps==0:#step%args.logging_steps==0:
-                #    b = list(model.parameters())[199].clone()
-                #    b2 = list(model.parameters())[200].clone()
-
-                #    print("Check if the classifier layer weights are being updated:") #logger.info
-                #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
-                #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
-                step += 1
-            #Evaluate at the end of the epoch
-            if args.logging_steps>0 and epoch%args.logging_steps==0: 
-                if nb_tr_steps == 0:
-                    nb_tr_steps =1
-                print("Train loss : {}".format(tr_loss/nb_tr_steps))
-                logs={}
-                    
-                # DUVIDA: Pedir a zita para explicar isto
-                loss_scalar = (tr_loss - logging_loss) / args.logging_steps
-                logs["loss"] = str(loss_scalar)
-                logging_loss = tr_loss
-
-                if args.evaluate_during_training:    
-                    test_inputs = train_data_normalized[-train_window:].tolist()
-                    
-                    results, _, val_preds_seq = evaluate(args, model, dev_obs_seq,  global_step, epoch, test_inputs, prefix = str(n_eval))
-    
-                    n_eval += 1
-                    for key, value in results.items():
-                        eval_key = "eval_{}".format(key)
-                        logs[eval_key] = str(value)
-
-                    if results["mse"] < best_mse_eval:
-                        save_best = True
-                        best_mse_eval = results["mse"]
-                        best_val_preds_seq = val_preds_seq
-                        best_val_hidden_states = model.hidden_cell #encoder.hidden
+                    #    print("Check if the classifier layer weights are being updated:") #logger.info
+                    #    print("Weight W: "+str(not torch.equal(a.data, b.data)))  #logger.info
+                    #    print("Bias b: " + str(not torch.equal(a2.data, b2.data))) #logger.info
+                    step += 1
+                #Evaluate at the end of the epoch
+                if args.logging_steps>0 and epoch%args.logging_steps==0: 
+                    if nb_tr_steps == 0:
+                        nb_tr_steps =1
+                    print("Train loss : {}".format(tr_loss/nb_tr_steps))
+                    logs={}
                         
-                    #Store 
-                    val_loss_set.append((results["mse"], global_step, epoch)) 
+                    # DUVIDA: Pedir a zita para explicar isto
+                    loss_scalar = (tr_loss - logging_loss) / args.logging_steps
+                    logs["loss"] = str(loss_scalar)
+                    logging_loss = tr_loss
+
+                    if args.evaluate_during_training:    
+                        test_inputs = train_data_normalized[-train_window:].tolist()
+                        
+                        results, _, val_preds_seq = evaluate(args, model, dev_obs_seq,  global_step, epoch, test_inputs, prefix = str(n_eval))
+        
+                        n_eval += 1
+                        for key, value in results.items():
+                            eval_key = "eval_{}".format(key)
+                            logs[eval_key] = str(value)
+
+                        if results["mse"] < best_mse_eval:
+                            save_best = True
+                            best_mse_eval = results["mse"]
+                            best_val_preds_seq = val_preds_seq
+                            best_val_hidden_states = model.hidden_cell #encoder.hidden
+                            
+                        #Store 
+                        val_loss_set.append((results["mse"], global_step, epoch)) 
 
 
-                    print(json.dumps({**logs, **{"step": str(global_step)}}))
+                        print(json.dumps({**logs, **{"step": str(global_step)}}))
+                
+                    
+                
+                if args.max_steps > 0 and global_step > args.max_steps:
+                    train_iterator.close()
+                    break
+        
+            # Plot training loss (mse)
+            plt.figure(figsize=(15,8))
+            plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
+            plt.xlabel("Batch")
+            plt.ylabel("Loss")
+            plt.plot(train_loss_set)
+            #plt.show()
+
+            plt.savefig(os.path.join(args.output_dir)+'training_loss_mc' + str(montecarlo)+'.png', bbox_inches='tight')
+
+            # Plot validation loss (mse)
+            plt.figure(figsize=(15,8))
+            plt.title("Validation loss with batch size "+str(batch_size)+" and sequence length "+str(seq_len))
+            plt.xlabel("Epoch")
+            plt.ylabel("Loss")
+            plt.plot([p[2] for p in val_loss_set], [p[0] for p in val_loss_set])
+            #plt.show()
+
+            plt.savefig(os.path.join(args.output_dir)+'validation_loss_mc' + str(montecarlo)+'.png', bbox_inches='tight')
+
+            # Plot true observations and predictions in the end of the training process (final epoch), in the same figure
+            plt.figure(figsize=(15,8))
+            plt.title("Train observation sequence: real and predicted")
+            plt.xlabel("Sample")
+            plt.ylabel("Count")
+            obs_plot, = plt.plot(train_obs_seq, color='blue', label='Train observation sequence (real)')
+            pred_plot, = plt.plot(scaler.inverse_transform(torch.cat(train_preds_seq).detach().cpu().numpy().reshape(-1,1)).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+            plt.legend(handles=[obs_plot, pred_plot])
+            #plt.show()
+            torch.save(scaler.inverse_transform(torch.cat(train_preds_seq).detach().cpu().numpy().reshape(-1,1)), args.output_dir+'/train_preds_seq_mc' + str(montecarlo)+'.pt')
+            
+            plt.savefig(os.path.join(args.output_dir)+'train_obs_preds_seq_mc' + str(montecarlo)+'.png', bbox_inches='tight')
+
+
+            # Plot true observations and predictions in the validation set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
+            plt.figure(figsize=(15,8))
+            plt.title("Validation observation sequence: real and predicted")
+            plt.xlabel("Sample")
+            plt.ylabel("Count")
+            obs_plot, = plt.plot(dev_obs_seq, color='blue', label='Train observation sequence (real)')
+            pred_plot, = plt.plot(np.concatenate(best_val_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+            plt.legend(handles=[obs_plot, pred_plot])
+            #plt.show()
+
+            plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq_mc' str(montecarlo) +'.png', bbox_inches='tight')
+
+        # Check accuracy in test set
+        # Load best model
+        if args.test_acc:
+            best_model_dir = os.path.join(args.output_dir, "best_model/")
+            if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
+                #Create encoder and decoder models
+                #best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
+                #best_decoder = Decoder(HIDDEN_DIM, device)
+                model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
+
+                #Put models in gpu
+                #best_encoder.cuda()
+                #best_decoder.cuda()
+                model.cuda()
             
                 
-            
-            if args.max_steps > 0 and global_step > args.max_steps:
-                train_iterator.close()
-                break
-       
-        # Plot training loss (mse)
+                #Load encoder and decoder states
+                #best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
+                #best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
+                model.load_state_dict(torch.load(best_model_dir+"model.pth"))
+
+                #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
+                model.hidden_cell = torch.load(best_model_dir+"best_val_hidden_states.pt")
+                test_inputs = scaler.transform(dev_obs_seq[-train_window:].reshape(-1,1)).tolist()
+                results, test_obs_seq, test_preds_seq = evaluate(args, model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
+
+                torch.save(test_preds_seq, args.output_dir + '/best_model/test_preds_seq_mc' + str(montecarlo) + '.pt')    
+                logs = {}
+                for key, value in results.items():
+                    eval_key = "eval_{}".format(key)
+                    logs[eval_key] = str(value)
+
+        # Plot true observations and predictions in the test set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
         plt.figure(figsize=(15,8))
-        plt.title("Training loss com batch size "+str(batch_size)+ " and sequence length " + str(seq_len))
-        plt.xlabel("Batch")
-        plt.ylabel("Loss")
-        plt.plot(train_loss_set)
-        #plt.show()
-
-        plt.savefig(os.path.join(args.output_dir)+'training_loss.png', bbox_inches='tight')
-
-        # Plot validation loss (mse)
-        plt.figure(figsize=(15,8))
-        plt.title("Validation loss with batch size "+str(batch_size)+" and sequence length "+str(seq_len))
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.plot([p[2] for p in val_loss_set], [p[0] for p in val_loss_set])
-        #plt.show()
-
-        plt.savefig(os.path.join(args.output_dir)+'validation_loss.png', bbox_inches='tight')
-
-        # Plot true observations and predictions in the end of the training process (final epoch), in the same figure
-        plt.figure(figsize=(15,8))
-        plt.title("Train observation sequence: real and predicted")
+        plt.title("Test observation sequence: real and predicted")
         plt.xlabel("Sample")
         plt.ylabel("Count")
-        obs_plot, = plt.plot(train_obs_seq, color='blue', label='Train observation sequence (real)')
-        pred_plot, = plt.plot(scaler.inverse_transform(torch.cat(train_preds_seq).detach().cpu().numpy().reshape(-1,1)).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
+        obs_plot, = plt.plot(test_obs_seq, color='blue', label='Train observation sequence (real)') 
+        pred_plot, = plt.plot(np.concatenate(test_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
         plt.legend(handles=[obs_plot, pred_plot])
         #plt.show()
 
-        plt.savefig(os.path.join(args.output_dir)+'train_obs_preds_seq.png', bbox_inches='tight')
+        plt.savefig(os.path.join(args.output_dir)+'test_obs_preds_seq_mc' + str(montecarlo) +'.png', bbox_inches='tight')
 
-
-        # Plot true observations and predictions in the validation set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
-        plt.figure(figsize=(15,8))
-        plt.title("Validation observation sequence: real and predicted")
-        plt.xlabel("Sample")
-        plt.ylabel("Count")
-        obs_plot, = plt.plot(dev_obs_seq, color='blue', label='Train observation sequence (real)')
-        pred_plot, = plt.plot(np.concatenate(best_val_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
-        plt.legend(handles=[obs_plot, pred_plot])
-        #plt.show()
-
-        plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq.png', bbox_inches='tight')
-
-    # Check accuracy in test set
-    # Load best model
-    if args.test_acc:
-        best_model_dir = os.path.join(args.output_dir, "best_model/")
-        if os.path.exists(best_model_dir): #Path to best model (the one which gave lower MSE in the validation set during training)
-            #Create encoder and decoder models
-            #best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
-            #best_decoder = Decoder(HIDDEN_DIM, device)
-            model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
-
-            #Put models in gpu
-            #best_encoder.cuda()
-            #best_decoder.cuda()
-            model.cuda()
-         
-            
-            #Load encoder and decoder states
-            #best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
-            #best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-            model.load_state_dict(torch.load(best_model_dir+"model.pth"))
-
-            #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
-            model.hidden_cell = torch.load(best_model_dir+"best_val_hidden_states.pt")
-            test_inputs = scaler.transform(dev_obs_seq[-train_window:].reshape(-1,1)).tolist()
-            results, test_obs_seq, test_preds_seq = evaluate(args, model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
-
-    
-            logs = {}
-            for key, value in results.items():
-                eval_key = "eval_{}".format(key)
-                logs[eval_key] = str(value)
-
-    # Plot true observations and predictions in the test set using the best model (the one that achieved the lowest mse in the validation set), in the same figure
-    plt.figure(figsize=(15,8))
-    plt.title("Test observation sequence: real and predicted")
-    plt.xlabel("Sample")
-    plt.ylabel("Count")
-    obs_plot, = plt.plot(test_obs_seq, color='blue', label='Train observation sequence (real)') 
-    pred_plot, = plt.plot(np.concatenate(test_preds_seq).ravel().tolist(), color='orange', label='Train observation sequence (predicted)')
-    plt.legend(handles=[obs_plot, pred_plot])
-    #plt.show()
-
-    plt.savefig(os.path.join(args.output_dir)+'test_obs_preds_seq.png', bbox_inches='tight')
-
-    # See what the scores are after training
-    #with torch.no_grad():
-    #    inputs = prepare_sequence(training_data[0][0], word_to_ix)
-    #    tag_scores = model(inputs)
-    #    print(tag_scores)
-    #model = Sequential()
-    #model.add(LSTM(4, input_shape=(look_back, 1)))
-    #model.add(Dense(1))
-    #model.compile(loss='mean_squared_error', optimizer='adam')
-    #model.fit(trainX, trainY, epochs=100, batch_size=1, verbose=2)
+        # See what the scores are after training
+        #with torch.no_grad():
+        #    inputs = prepare_sequence(training_data[0][0], word_to_ix)
+        #    tag_scores = model(inputs)
+        #    print(tag_scores)
+        #model = Sequential()
+        #model.add(LSTM(4, input_shape=(look_back, 1)))
+        #model.add(Dense(1))
+        #model.compile(loss='mean_squared_error', optimizer='adam')
+        #model.fit(trainX, trainY, epochs=100, batch_size=1, verbose=2)
     
     print("Done!")
 	
 
 
 if __name__=='__main__':
-    main()
+    #Parser
+    parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
+    #C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/dt/1.0/"
+    parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/server/1.0/", help="OS path to the folder where the embeddings are located.")
+    #r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/", help="OS path to the folder where the embeddings are located.")
+    parser.add_argument('--discretization_unit', default=1, help="The discretization unit is the number of hours to discretize the time series data. E.g.: If the user choses 3, then one sample point will cointain 3 hours of data.")
+    parser.add_argument('--window_size', type = int, default=0, help='The window length defines how many units of time to look behind when calculating the features of a given timestamp.')
+    parser.add_argument('--seq_len', type = int, default=24, help='Input dimension (number of timestamps).')
+    parser.add_argument('--batch_size', type = int, default=1, help='How many batches of sequence length inputs per iteration.')
+    parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every X updates steps.") 
+    parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
+    #parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
+    #parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
+    #parser.add_argument("--warmup_proportion", default=0.1, type=float, help="Warmup is the proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%")
+    parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-250/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")    #r'C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/lstm/fit_results/checkpoint-200/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
+    parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--num_train_epochs", default=2, type=int, help="Total number of training epochs to perform." )
+    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X updates steps.")
+    parser.add_argument("--evaluate_during_training", action="store_false", help="Run evaluation during training at each logging step.")
+    parser.add_argument("--max_steps", default=-1, type=int, help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
+    parser.add_argument("--test_acc", action="store_false", help="Run evaluation and store accuracy on test set.")
+    parser.add_argument("--evaluate_only", action="store_true", help="Run only evaluation on validation and test sets with the best model found in training.")
+    parser.add_argument("--use_features", action="store_true", help="If we want to consider the textual features (from BERT/TFIDF) or only the counts.")
+    parser.add_argument("--percentages", default=[0.8,0.1,0.1], help="Percentages of train, dev, test such that: sum([x,x,x])=1")
+
+    args = parser.parse_args()
+    main(args)
