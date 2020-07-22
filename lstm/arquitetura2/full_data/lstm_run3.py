@@ -673,21 +673,21 @@ def main(args):
                 print("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
                 
                 #Load encoder and decoder states
-                model.load_state_dict(torch.load(args.model_name_or_path+"model.pth"))
+                model.load_state_dict(torch.load(args.model_name_or_path+"model_mc0.pth"))
                 
                 best_model_dir = args.model_name_or_path.rsplit("/",2)[0]+"/" #previous folder of the checkpoint (same as doing cd ..)
                 if os.path.exists(best_model_dir+ "best_model/"):
-                    if os.path.isfile(best_model_dir+ "best_model/best_mse_eval.bin"):
+                    if os.path.isfile(best_model_dir+ "best_model/best_mse_eval_mc0.bin"):
                         #Load best_mse_eval
-                        best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval.bin")
+                        best_mse_eval = torch.load(best_model_dir+"best_model/best_mse_eval_mc0.bin")
 
-                    if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq.pt"):
+                    if os.path.isfile(best_model_dir+ "best_model/best_val_preds_seq_mc0.pt"):
                         #Load best_val_preds_seq
-                        best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq.pt")
-                if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set.pt")):
-                    train_loss_set = torch.load(args.model_name_or_path+"train_loss_set.pt")
-                if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set.pt")):
-                    val_loss_set = torch.load(args.model_name_or_path+"val_loss_set.pt")
+                        best_val_preds_seq = torch.load(best_model_dir+"best_model/best_val_preds_seq_mc0.pt")
+                if os.path.isfile(os.path.join(args.model_name_or_path, "train_loss_set_mc0.pt")):
+                    train_loss_set = torch.load(args.model_name_or_path+"train_loss_set_mc0.pt")
+                if os.path.isfile(os.path.join(args.model_name_or_path, "val_loss_set_mc0.pt")):
+                    val_loss_set = torch.load(args.model_name_or_path+"val_loss_set_mc0.pt")
 
             tr_loss, logging_loss = 0.0, 0.0
             n_eval = 1
@@ -703,6 +703,7 @@ def main(args):
 
             
             for epoch in train_iterator:
+                
                 if epoch == args.num_train_epochs-1:
                     final_epoch = True
                     train_preds_seq = []
@@ -797,7 +798,7 @@ def main(args):
                                 os.makedirs(output_dir)
                             torch.save(best_mse_eval, output_dir+'/best_mse_eval_mc' + str(montecarlo) + '.bin')
                             torch.save(best_val_preds_seq, output_dir+'/best_val_preds_seq_mc' + str(montecarlo)+'.pt')
-                            torch.save(best_val_hidden_states, output_dir+'/best_val_hidden_states_mc' + str(montecarlo)+'.pt")
+                            torch.save(best_val_hidden_states, output_dir+'/best_val_hidden_states_mc' + str(montecarlo)+'.pt')
                             save_best = False
                         else:
                             output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -868,7 +869,7 @@ def main(args):
                 
                 if args.max_steps > 0 and global_step > args.max_steps:
                     train_iterator.close()
-                    break
+                    
         
             # Plot training loss (mse)
             plt.figure(figsize=(15,8))
@@ -914,7 +915,7 @@ def main(args):
             plt.legend(handles=[obs_plot, pred_plot])
             #plt.show()
 
-            plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq_mc' str(montecarlo) +'.png', bbox_inches='tight')
+            plt.savefig(os.path.join(args.output_dir)+'best_val_obs_preds_seq_mc'+ str(montecarlo) +'.png', bbox_inches='tight')
 
         # Check accuracy in test set
         # Load best model
@@ -935,10 +936,10 @@ def main(args):
                 #Load encoder and decoder states
                 #best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
                 #best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-                model.load_state_dict(torch.load(best_model_dir+"model.pth"))
+                model.load_state_dict(torch.load(best_model_dir+'model_mc' + str(montecarlo)+'.pth'))
 
                 #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
-                model.hidden_cell = torch.load(best_model_dir+"best_val_hidden_states.pt")
+                model.hidden_cell = torch.load(best_model_dir+'best_val_hidden_states_mc' + str(montecarlo)+ '.pt')
                 test_inputs = scaler.transform(dev_obs_seq[-train_window:].reshape(-1,1)).tolist()
                 results, test_obs_seq, test_preds_seq = evaluate(args, model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
 

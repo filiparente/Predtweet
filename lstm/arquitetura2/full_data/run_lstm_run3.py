@@ -2,6 +2,7 @@
 import lstm_run3 as run
 import argparse
 import os
+import pdb
 
 def main():
     parser = argparse.ArgumentParser(description='Fit an LSTM to the data, to predict the tweet counts from the embbedings.')
@@ -12,7 +13,6 @@ def main():
     parser.add_argument("--save_steps", type=int, default=100000, help="Save checkpoint every X updates steps.") 
     parser.add_argument("--learning_rate", default=0.001, type=float, help="The initial learning rate for Adam.") #5e-5
     parser.add_argument("--model_name_or_path", default=r'C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/sem_sliding_batches/lstm/fit_results/checkpoint-250/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")    #r'C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/TF-IDF/server/n_features/768/1.0/lstm/fit_results/checkpoint-200/', type=str, help="Path to folder containing saved checkpoints, schedulers, models, etc.")
-    parser.add_argument("--output_dir", default='lstm/fit_results/', type=str, help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--num_train_epochs", default=300, type=int, help="Total number of training epochs to perform." )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -28,7 +28,7 @@ def main():
     loop_percentages = [[0.9,0.05,0.05], [0.70, 0.15, 0.15], [0.60, 0.20, 0.20], [0.50, 0.25, 0.25]]
     loop_dt = [1]
     loop_dw = [0,1,3,5,7]
-
+    
     for dt in loop_dt:
         for dw in loop_dw:
             n_run=1
@@ -50,6 +50,8 @@ def main():
 
                 args.output_dir = output_dir
                 
-                run(args)
+                run.main(args)
                 n_run+=1
-    
+
+if __name__=='__main__':
+     main()    
