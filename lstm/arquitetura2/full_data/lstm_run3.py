@@ -129,10 +129,10 @@ class LSTM(nn.Module):
         return predictions[-1]
 
     def init_hidden(self, batch_size):
-        #return (nn.Parameter(torch.randn(self.num_layers,batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_dim).type(torch.FloatTensor).to(self.device),requires_grad=True))
+        return (nn.Parameter(torch.randn(self.num_layers,batch_size, self.hidden_layer_size).type(torch.FloatTensor).to(self.device), requires_grad=True), nn.Parameter(torch.randn(self.num_layers, batch_size, self.hidden_layer_size).type(torch.FloatTensor).to(self.device),requires_grad=True))
 
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device), #hidden state
-                torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device)) #cell state
+        #return (torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device), #hidden state
+        #        torch.zeros(self.num_layers, batch_size, self.hidden_layer_size).to(self.device)) #cell state
        
 
 def set_seed(args,n_gpu):
@@ -636,6 +636,7 @@ def main(args):
     n_montecarlo = 10
 
     for montecarlo in range(n_montecarlo):
+        #pdb.set_trace()
         if not args.evaluate_only:
             # Train!
             print("***** Running training *****")
@@ -699,7 +700,7 @@ def main(args):
                 epochs_trained, epochs, desc="Epoch",
             )
 
-            set_seed(args, n_gpu)  # Added here for reproductibility
+            #set_seed(args, n_gpu)  # Added here for reproductibility
 
             
             for epoch in train_iterator:
@@ -925,23 +926,23 @@ def main(args):
                 #Create encoder and decoder models
                 #best_encoder = Encoder(EMBEDDING_DIM, HIDDEN_DIM, batch_size, device)
                 #best_decoder = Decoder(HIDDEN_DIM, device)
-                model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
+                best_model = LSTM(device, EMBEDDING_DIM, HIDDEN_DIM, 1)
 
                 #Put models in gpu
                 #best_encoder.cuda()
                 #best_decoder.cuda()
-                model.cuda()
+                best_model.cuda()
             
                 
                 #Load encoder and decoder states
                 #best_encoder.load_state_dict(torch.load(best_model_dir+"encoder.pth"))  
                 #best_decoder.load_state_dict(torch.load(best_model_dir+"decoder.pth"))
-                model.load_state_dict(torch.load(best_model_dir+'model_mc' + str(montecarlo)+'.pth'))
+                best_model.load_state_dict(torch.load(best_model_dir+'model_mc' + str(montecarlo)+'.pth'))
 
                 #encoder.hidden = torch.load(best_model_dir+"best_val_hidden_states.pt") 
-                model.hidden_cell = torch.load(best_model_dir+'best_val_hidden_states_mc' + str(montecarlo)+ '.pt')
+                best_model.hidden_cell = torch.load(best_model_dir+'best_val_hidden_states_mc' + str(montecarlo)+ '.pt')
                 test_inputs = scaler.transform(dev_obs_seq[-train_window:].reshape(-1,1)).tolist()
-                results, test_obs_seq, test_preds_seq = evaluate(args, model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
+                results, test_obs_seq, test_preds_seq = evaluate(args, best_model, test_obs_seq, global_step, epoch, test_inputs, prefix = 'Test')          
 
                 torch.save(test_preds_seq, args.output_dir + '/best_model/test_preds_seq_mc' + str(montecarlo) + '.pt')    
                 logs = {}
