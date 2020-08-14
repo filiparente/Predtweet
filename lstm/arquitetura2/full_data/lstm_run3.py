@@ -446,15 +446,26 @@ def main(args):
                    break
                 
 
-        lengths = np.cumsum(lengths)
+        #lengths = np.cumsum(lengths)
+        #lengths = [int(l) for l in lengths]
+
+        #train_obs_seq = all_obs_seq[:lengths[0]]
+        #train_X = all_X[:, :lengths[0]]
+        #dev_obs_seq = all_obs_seq[lengths[0]+window_size:lengths[1]]
+        #dev_X = all_X[:, lengths[0]+window_size:lengths[1]]
+        #test_obs_seq = all_obs_seq[lengths[1]+window_size:]
+        #test_X = all_X[:, lengths[1]+window_size:]
+
+        lengths = list(np.insert(np.cumsum(lengths)+len_dataset-sum(lengths)), 0, len_dataset-sum(lengths))
         lengths = [int(l) for l in lengths]
 
-        train_obs_seq = all_obs_seq[:lengths[0]]
-        train_X = all_X[:, :lengths[0]]
-        dev_obs_seq = all_obs_seq[lengths[0]+window_size:lengths[1]]
-        dev_X = all_X[:, lengths[0]+window_size:lengths[1]]
-        test_obs_seq = all_obs_seq[lengths[1]+window_size:]
-        test_X = all_X[:, lengths[1]+window_size:]
+        train_obs_seq = all_obs_seq[lengths[0]:lengths[1]]
+        train_X = all_X[:, lengths[0]:lengths[1]]
+        dev_obs_seq = all_obs_seq[lengths[1]+window_size:lengths[2]]
+        dev_X = all_X[:, lengths[1]+window_size:lengths[2]]
+        test_obs_seq = all_obs_seq[lengths[2]+window_size:]
+        test_X = all_X[:, lengths[2]+window_size:]
+    
     else:
         train_list = train_data['y'].ravel()
         c = list(train_list).index(obs_seq[0])

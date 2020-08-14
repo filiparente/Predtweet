@@ -25,7 +25,8 @@ def main():
     parser.add_argument("--use_features", action="store_true", help="If we want to consider the textual features (from BERT/TFIDF) or only the counts.")
     args = parser.parse_args()
 
-    loop_percentages = [[0.9,0.05,0.05], [0.8, 0.1, 0.1], [0.70, 0.15, 0.15], [0.60, 0.20, 0.20], [0.50, 0.25, 0.25]]
+    #loop_percentages = [[0.9,0.05,0.05], [0.8, 0.1, 0.1], [0.70, 0.15, 0.15], [0.60, 0.20, 0.20], [0.50, 0.25, 0.25]]
+    loop_percentages = [[0.9, 0.05, 0.05], [0.8, 0.05, 0.05], [0.7, 0.05, 0.05], [0.6, 0.05, 0.05], [0.5, 0.05, 0.05]]
     loop_dt = [1]
     loop_dw = [0,1,3,5,7]
     
