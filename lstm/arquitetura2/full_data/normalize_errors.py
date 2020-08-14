@@ -169,7 +169,7 @@ def fft_(signal1, signal2, plot_):
 def main():
     #Parser
     parser = argparse.ArgumentParser(description='Normalize LSTM errors.')
-    parser.add_argument('--model_path', default=r"C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/full_data/", help="OS path to the folder where the embeddings are located.")
+    parser.add_argument('--model_path', default=r"C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/full_data/wt_features/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--full_dataset_path', default=r"C:/Users/Filipa/Desktop/Predtweet/bitcoin_data/datasets/server/1.0/", help="OS path to the folder where the embeddings are located.")
     parser.add_argument('--seq_len', type = int, default=50, help='Input dimension (number of timestamps).')
     parser.add_argument('--batch_size', type = int, default=1, help='How many batches of sequence length inputs per iteration.')
@@ -184,7 +184,7 @@ def main():
     normalize = True
     batch_size = args.batch_size
     seq_len = args.seq_len
-    percentages = [0.8, 0.1, 0.1]
+    percentages = [0.5, 0.25, 0.25]
     
     # If there's a GPU available...
     if torch.cuda.is_available():    
@@ -202,7 +202,7 @@ def main():
     run = input("Save prediction report for which run (accepted input: integer number 1,2,...) ?")
 
     dts = [1] #[1,3,4,6] #[1,3,4,6,12,24,48]
-    dws = [0,1,3,5,7] 
+    dws = [0]#,1,3,5,7] 
     
     result = {}
 
@@ -391,23 +391,30 @@ def main():
         mae_test = []
 
         train_window = 24
+        n_montecarlos = 10
+        dw=0
 
         #Load results
         for i in range(len(dts)):
             dt = dts[i]
 
-            for j in range(len(dws)):
-                dw = dws[j]
+            #for j in range(len(dws)):
+            #    dw = dws[j]
                 
+            for montecarlo in range(n_montecarlos):    
                 #Results
                 #Train predictions
-                train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/train_preds_seq.pt')).ravel().tolist()
+                
+                #train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/train_preds_seq.pt')).ravel().tolist()
+                train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/train_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
                 #Validation predictions
-                best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/best_val_preds_seq.pt')).ravel().tolist()
+                #best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/best_val_preds_seq.pt')).ravel().tolist()
+                best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/best_val_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
                 #Test predictions
-                test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/test_preds_seq.pt')).ravel().tolist()
+                #test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/test_preds_seq_mc.pt')).ravel().tolist()
+                test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/test_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
                 #mse
                 mse_train.append(mean_squared_error(train_obs_seq[train_window:], train_preds_seq))
@@ -657,7 +664,7 @@ def main():
         #Save BERT_runx_prediction_report.mat
         #save([path, 'BERT_run' num2str(run) '_prediction_report.mat'], 'out_results')
 
-        savemat(args.output_dir + 'BERT_run' + str(run) + '_prediction_report_LSTM.mat', result, oned_as='row')
+        savemat(args.output_dir + 'run' + str(run) + '_prediction_report_LSTM.mat', result, oned_as='row')
 
 if __name__=='__main__':
     main()
