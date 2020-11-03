@@ -177,14 +177,14 @@ def main():
     parser.add_argument("--output_dir", default=r"C:/Users/Filipa/Desktop/Predtweet/lstm/arquitetura2/full_data/")
     args = parser.parse_args()
     print(args)
-
+    
     model_path = args.model_path    
     path = args.full_dataset_path
     train_dev_test_split = True
     normalize = True
     batch_size = args.batch_size
     seq_len = args.seq_len
-    percentages = [0.5, 0.25, 0.25]
+    percentages = [0.05, 0.05, 0.05]
     
     # If there's a GPU available...
     if torch.cuda.is_available():    
@@ -287,15 +287,36 @@ def main():
                     break
                 
 
-        lengths = np.cumsum(lengths)
+        #lengths = np.cumsum(lengths)
+        #lengths = [int(l) for l in lengths]
+
+        #train_obs_seq = all_obs_seq[:lengths[0]]
+        #train_X = all_X[:, :lengths[0]]
+        #dev_obs_seq = all_obs_seq[lengths[0]+window_size:lengths[1]]
+        #dev_X = all_X[:, lengths[0]+window_size:lengths[1]]
+        #test_obs_seq = all_obs_seq[lengths[1]+window_size:]
+        #test_X = all_X[:, lengths[1]+window_size:]
+
+        lengths = list(np.insert(np.cumsum(lengths)+len_dataset-sum(lengths), 0, len_dataset-sum(lengths)))
         lengths = [int(l) for l in lengths]
 
-        train_obs_seq = all_obs_seq[:lengths[0]]
-        train_X = all_X[:, :lengths[0]]
-        dev_obs_seq = all_obs_seq[lengths[0]+window_size:lengths[1]]
-        dev_X = all_X[:, lengths[0]+window_size:lengths[1]]
-        test_obs_seq = all_obs_seq[lengths[1]+window_size:]
-        test_X = all_X[:, lengths[1]+window_size:]
+        train_obs_seq = all_obs_seq[lengths[0]:lengths[1]]
+        train_X = all_X[:, lengths[0]:lengths[1]]
+        dev_obs_seq = all_obs_seq[lengths[1]+window_size:lengths[2]]
+        dev_X = all_X[:, lengths[1]+window_size:lengths[2]]
+        test_obs_seq = all_obs_seq[lengths[2]+window_size:]
+        test_X = all_X[:, lengths[2]+window_size:]
+                
+
+        #lengths = np.cumsum(lengths)
+        #lengths = [int(l) for l in lengths]
+
+        #train_obs_seq = all_obs_seq[:lengths[0]]
+        #train_X = all_X[:, :lengths[0]]
+        #dev_obs_seq = all_obs_seq[lengths[0]+window_size:lengths[1]]
+        #dev_X = all_X[:, lengths[0]+window_size:lengths[1]]
+        #test_obs_seq = all_obs_seq[lengths[1]+window_size:]
+        #test_X = all_X[:, lengths[1]+window_size:]
     else:
         train_list = train_data['y'].ravel()
         c = list(train_list).index(obs_seq[0])
@@ -404,29 +425,30 @@ def main():
             for montecarlo in range(n_montecarlos):    
                 #Results
                 #Train predictions
-                
                 #train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/train_preds_seq.pt')).ravel().tolist()
-                train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/train_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
+                train_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/5_5_5/tensors/train_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
                 #Validation predictions
                 #best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/best_val_preds_seq.pt')).ravel().tolist()
-                best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/best_val_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
+                best_val_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/5_5_5/tensors/best_val_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
                 #Test predictions
                 #test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/run1_results/best_model/test_preds_seq_mc.pt')).ravel().tolist()
-                test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/50_25_25/tensors/test_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
+                test_preds_seq = np.concatenate(torch.load(model_path + str(dt) + '.' + str(dw) +'/5_5_5/tensors/test_preds_seq_mc' + str(montecarlo) + '.pt')).ravel().tolist()
 
+                mae_test.append(np.mean((abs(test_preds_seq-test_obs_seq))/test_obs_seq)*100)
                 #mse
-                mse_train.append(mean_squared_error(train_obs_seq[train_window:], train_preds_seq))
-                mse_dev.append(mean_squared_error(dev_obs_seq[dw:], best_val_preds_seq))
-                mse_test.append(mean_squared_error(test_obs_seq[dw:], test_preds_seq))
+                #mse_train.append(mean_squared_error(train_obs_seq[train_window:], train_preds_seq))
+                #mse_dev.append(mean_squared_error(dev_obs_seq[dw:], best_val_preds_seq))
+                #mse_test.append(mean_squared_error(test_obs_seq[dw:], test_preds_seq))
 
                 #mae
-                mae_train.append(mean_absolute_error(train_obs_seq[train_window:], train_preds_seq))
-                mae_dev.append(mean_absolute_error(dev_obs_seq[dw:], best_val_preds_seq))
-                mae_test.append(mean_absolute_error(test_obs_seq[dw:], test_preds_seq))
+                #mae_train.append(mean_absolute_error(train_obs_seq[train_window:], train_preds_seq))
+                #mae_dev.append(mean_absolute_error(dev_obs_seq[dw:], best_val_preds_seq))
+                #mae_test.append(mean_absolute_error(test_obs_seq[dw:], test_preds_seq))
 
         #MSE
+        print(np.mean(mae_test))
         mse_mean_train = np.mean(mse_train)
         mse_std_train = np.std(mse_train)
         mse_mean_dev = np.mean(mse_dev)
